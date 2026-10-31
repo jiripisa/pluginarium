@@ -4,6 +4,33 @@ import PluginariumCore
 import Testing
 @testable import PluginariumAudio
 
+/// A rig with a tempo reporter on outputs 1-2. It follows the transport unless told otherwise.
+private func tempoRig(follows: Bool? = true) async throws -> (rig: Rig, plugin: HostedPlugin) {
+    let plugin = try await loadPlugin(type: "aumu", subtype: "PlTp")
+    let rig = Rig()
+    #expect(pr_install_host_callbacks(plugin.audioUnit, rig.engine) == noErr)
+    if let follows { pr_engine_set_follows_transport(rig.engine, plugin.audioUnit, follows) }
+    rig.install([StripSpec(source: plugin)])
+    return (rig, plugin)
+}
+
+/// Every answer the musical callbacks give `unit` right now.
+private func musicalTime(of unit: AudioUnit, in engine: OpaquePointer) throws -> (beat: Double, tempo: Double, toNextBeat: UInt32, downbeat: Double) {
+    let info = pr_host_callback_info(engine, unit)
+    let beatAndTempo = try #require(info.beatAndTempoProc)
+    let location = try #require(info.musicalTimeLocationProc)
+    var beat = -1.0
+    var tempo = -1.0
+    var toNextBeat = UInt32.max
+    var numerator: Float32 = -1
+    var denominator = UInt32.max
+    var downbeat = -1.0
+    #expect(beatAndTempo(info.hostUserData, &beat, &tempo) == noErr)
+    #expect(location(info.hostUserData, &toNextBeat, &numerator, &denominator, &downbeat) == noErr)
+    #expect(numerator == 4 && denominator == 4)
+    return (beat, tempo, toNextBeat, downbeat)
+}
+
 /// Sets a mono format on every bus and initializes, since `HostedPlugin.configure` prefers stereo.
 private func configureMono(_ plugin: HostedPlugin) throws {
     let unit = plugin.audioUnit
@@ -578,10 +605,7 @@ struct RenderCoreTests {
 
     @Test("A unit sees the beat advance while playing and hold while stopped")
     func unitSeesBeatAndTransport() async throws {
-        let plugin = try await loadPlugin(type: "aumu", subtype: "PlTp")
-        let rig = Rig()
-        #expect(pr_install_host_callbacks(plugin.audioUnit, rig.engine) == noErr)
-        rig.install([StripSpec(source: plugin)])
+        let (rig, plugin) = try await tempoRig()
         expectLevel(rig.render()[0], 0.12)
         expectLevel(rig.render()[1], -1)
 
@@ -599,31 +623,25 @@ struct RenderCoreTests {
 
     @Test("A rewind waits for the render thread, and the next block starts from zero")
     func rewindTakesEffectAtTheNextBlock() async throws {
-        let plugin = try await loadPlugin(type: "aumu", subtype: "PlTp")
-        let rig = Rig()
-        #expect(pr_install_host_callbacks(plugin.audioUnit, rig.engine) == noErr)
-        rig.install([StripSpec(source: plugin)])
+        let (rig, plugin) = try await tempoRig()
         pr_engine_set_transport(rig.engine, 120, true)
         for _ in 0..<100 { _ = rig.render() }
 
         pr_engine_rewind_transport(rig.engine)
-        #expect(try transport(of: rig).sample == Double(blockFrames) * 100)
+        #expect(try transport(of: plugin.audioUnit, in: rig.engine).sample == Double(blockFrames) * 100)
 
         expectLevel(rig.render()[1], 0)
-        let rewound = try transport(of: rig)
+        let rewound = try transport(of: plugin.audioUnit, in: rig.engine)
         #expect(rewound.sample == Double(blockFrames))
         #expect(rewound.changed == true)
 
         expectLevel(rig.render()[1], Float(blockFrames) * 2 / Float(sampleRate))
-        #expect(try transport(of: rig).changed == false)
+        #expect(try transport(of: plugin.audioUnit, in: rig.engine).changed == false)
     }
 
     @Test("A rewind while stopped leaves the next start at zero")
     func rewindWhileStopped() async throws {
-        let plugin = try await loadPlugin(type: "aumu", subtype: "PlTp")
-        let rig = Rig()
-        #expect(pr_install_host_callbacks(plugin.audioUnit, rig.engine) == noErr)
-        rig.install([StripSpec(source: plugin)])
+        let (rig, plugin) = try await tempoRig()
         pr_engine_set_transport(rig.engine, 120, true)
         for _ in 0..<100 { _ = rig.render() }
         pr_engine_set_transport(rig.engine, 120, false)
@@ -631,16 +649,16 @@ struct RenderCoreTests {
 
         pr_engine_rewind_transport(rig.engine)
         expectLevel(rig.render()[1], -1)
-        #expect(try transport(of: rig).sample == 0)
+        #expect(try transport(of: plugin.audioUnit, in: rig.engine).sample == 0)
 
         pr_engine_set_transport(rig.engine, 120, true)
         expectLevel(rig.render()[1], 0)
     }
 
     @Test("The legacy transport callback reports the same state as the current one")
-    func legacyTransportCallback() throws {
-        let rig = Rig()
-        let info = pr_host_callback_info(rig.engine)
+    func legacyTransportCallback() async throws {
+        let (rig, plugin) = try await tempoRig()
+        let info = pr_host_callback_info(rig.engine, plugin.audioUnit)
         let legacy = try #require(info.transportStateProc)
         let current = try #require(info.transportStateProc2)
 
@@ -671,24 +689,139 @@ struct RenderCoreTests {
         #expect(state.legacy == state.current)
         #expect(state.legacy == TransportReading(playing: false, changed: true, sample: Double(blockFrames) * 2, cycling: false, cycleStart: 0, cycleEnd: 0))
     }
-}
 
-/// What a unit reads between blocks. Rendering nothing, it cannot move the transport itself.
-private func transport(of rig: Rig) throws -> TransportReading {
-    let info = pr_host_callback_info(rig.engine)
-    let read = try #require(info.transportStateProc)
-    var state = TransportReading()
-    #expect(read(info.hostUserData, &state.playing, &state.changed, &state.sample, &state.cycling, &state.cycleStart, &state.cycleEnd) == noErr)
-    return state
-}
+    // MARK: - Follow Start/Stop
 
-/// Starts from values the expected states contradict, so a field left unwritten fails the test.
-private struct TransportReading: Equatable {
-    var playing: DarwinBoolean = true
-    var changed: DarwinBoolean = true
-    var sample: Float64 = -1
-    var cycling: DarwinBoolean = true
-    var cycleStart: Float64 = -1
-    var cycleEnd: Float64 = -1
-}
+    @Test("A unit that does not follow stays stopped at beat 0 and keeps the tempo")
+    func offKeepsTheTempoOnly() async throws {
+        let (rig, plugin) = try await tempoRig(follows: false)
+        pr_engine_set_transport(rig.engine, 124, true)
+        for block in 1...500 {
+            let output = rig.render()
+            expectLevel(output[0], 0.124)
+            expectLevel(output[1], -1)
+            if block == 1 {
+                #expect(try transport(of: plugin.audioUnit, in: rig.engine) == TransportReading(playing: false, changed: false, sample: 0, cycling: false, cycleStart: 0, cycleEnd: 0))
+            }
+        }
+        #expect(try transport(of: plugin.audioUnit, in: rig.engine) == TransportReading(playing: false, changed: false, sample: 0, cycling: false, cycleStart: 0, cycleEnd: 0))
+        let time = try musicalTime(of: plugin.audioUnit, in: rig.engine)
+        #expect(time.beat == 0 && time.downbeat == 0 && time.toNextBeat == 0)
+        #expect(time.tempo == 124)
+    }
 
+    @Test("A unit whose switch was never set does not follow")
+    func theDefaultIsOff() async throws {
+        let (rig, plugin) = try await tempoRig(follows: nil)
+        pr_engine_set_transport(rig.engine, 124, true)
+        for _ in 0..<500 { _ = rig.render() }
+        let output = rig.render()
+        expectLevel(output[0], 0.124)
+        expectLevel(output[1], -1)
+        #expect(try transport(of: plugin.audioUnit, in: rig.engine).playing == false)
+        #expect(try musicalTime(of: plugin.audioUnit, in: rig.engine).beat == 0)
+    }
+
+    @Test("A unit that follows reads the engine's beat and bar")
+    func onReadsTheEngine() async throws {
+        let (rig, plugin) = try await tempoRig()
+        pr_engine_set_transport(rig.engine, 120, true)
+        let beatsPerBlock = Double(blockFrames) * 2 / sampleRate
+        let blocks = Int((4.5 / beatsPerBlock).rounded(.up))
+        for _ in 0..<blocks { _ = rig.render() }
+        let time = try musicalTime(of: plugin.audioUnit, in: rig.engine)
+        #expect(abs(time.beat - Double(blocks) * beatsPerBlock) < 1e-9)
+        #expect(time.downbeat == 4)
+        #expect(time.toNextBeat > 0)
+        #expect(time.tempo == 120)
+    }
+
+    @Test("Units on one engine follow or not, each on its own")
+    func eachUnitHasItsOwnSwitch() async throws {
+        let follower = try await loadPlugin(type: "aumu", subtype: "PlTp")
+        let other = try await loadPlugin(type: "aumu", subtype: "PlTp")
+        let rig = Rig()
+        for plugin in [follower, other] { #expect(pr_install_host_callbacks(plugin.audioUnit, rig.engine) == noErr) }
+        pr_engine_set_follows_transport(rig.engine, follower.audioUnit, true)
+        rig.install([
+            StripSpec(source: follower, audioOut: PRChannels(left: 0, right: 1)),
+            StripSpec(source: other, audioOut: PRChannels(left: 2, right: 3)),
+        ])
+        pr_engine_set_transport(rig.engine, 120, true)
+        _ = rig.render()
+        let output = rig.render()
+        expectLevel(output[1], Float(blockFrames) * 2 / Float(sampleRate))
+        expectLevel(output[3], -1)
+    }
+
+    @Test("A running unit takes the switch at its next block, at the engine's position")
+    func theSwitchReachesARunningUnit() async throws {
+        let (rig, plugin) = try await tempoRig(follows: false)
+        pr_engine_set_transport(rig.engine, 120, true)
+        for _ in 0..<100 { _ = rig.render() }
+        expectLevel(rig.render()[1], -1)
+
+        pr_engine_set_follows_transport(rig.engine, plugin.audioUnit, true)
+        expectLevel(rig.render()[1], 101 * Float(blockFrames) * 2 / Float(sampleRate))
+
+        pr_engine_set_follows_transport(rig.engine, plugin.audioUnit, false)
+        expectLevel(rig.render()[1], -1)
+        #expect(try transport(of: plugin.audioUnit, in: rig.engine).sample == 0)
+    }
+
+    @Test("Both transport callbacks say stopped to a unit that does not follow")
+    func legacyAndCurrentAgreeWhenOff() async throws {
+        let (rig, plugin) = try await tempoRig(follows: false)
+        pr_engine_set_transport(rig.engine, 120, true)
+        _ = rig.render()
+        let info = pr_host_callback_info(rig.engine, plugin.audioUnit)
+        var viaCurrent = TransportReading()
+        var recording: DarwinBoolean = true
+        let current = try #require(info.transportStateProc2)
+        #expect(current(info.hostUserData, &viaCurrent.playing, &recording, &viaCurrent.changed, &viaCurrent.sample, &viaCurrent.cycling, &viaCurrent.cycleStart, &viaCurrent.cycleEnd) == noErr)
+        #expect(recording == false)
+        #expect(viaCurrent == TransportReading(playing: false, changed: false, sample: 0, cycling: false, cycleStart: 0, cycleEnd: 0))
+        #expect(try transport(of: plugin.audioUnit, in: rig.engine) == viaCurrent)
+    }
+
+    @Test("A unit given the callbacks again starts over at off, since its address can be a new unit's")
+    func installingAgainTurnsTheSwitchOff() async throws {
+        let (rig, plugin) = try await tempoRig()
+        pr_engine_set_transport(rig.engine, 120, true)
+        _ = rig.render()
+        #expect(try transport(of: plugin.audioUnit, in: rig.engine).playing == true)
+
+        #expect(pr_install_host_callbacks(plugin.audioUnit, rig.engine) == noErr)
+        #expect(try transport(of: plugin.audioUnit, in: rig.engine).playing == false)
+    }
+
+    @Test("A unit with no callbacks has no switch and no callbacks to read")
+    func aUnitWithoutCallbacksIsIgnored() async throws {
+        let plugin = try await loadPlugin(type: "aumu", subtype: "PlTp")
+        let rig = Rig()
+        pr_engine_set_follows_transport(rig.engine, plugin.audioUnit, true)
+        let info = pr_host_callback_info(rig.engine, plugin.audioUnit)
+        #expect(info.hostUserData == nil && info.transportStateProc == nil && info.transportStateProc2 == nil)
+        #expect(info.beatAndTempoProc == nil && info.musicalTimeLocationProc == nil)
+
+        #expect(pr_install_host_callbacks(plugin.audioUnit, rig.engine) == noErr)
+        pr_engine_set_transport(rig.engine, 120, true)
+        _ = rig.render()
+        #expect(try transport(of: plugin.audioUnit, in: rig.engine).playing == false)
+    }
+
+    @Test("The switch can change while another thread renders")
+    func theSwitchWhileRendering() async throws {
+        let (rig, plugin) = try await tempoRig(follows: false)
+        pr_engine_set_transport(rig.engine, 120, true)
+        let progress = RenderProgress()
+        let renderer = startRendering(rig, progress: progress)
+        for iteration in 0..<2_000 {
+            pr_engine_set_follows_transport(rig.engine, plugin.audioUnit, iteration.isMultiple(of: 2))
+            if iteration.isMultiple(of: 100) { await Task.yield() }
+        }
+        progress.stop.store(true, ordering: .relaxed)
+        await renderer.value
+        #expect(progress.renders.load(ordering: .relaxed) > 0)
+    }
+}

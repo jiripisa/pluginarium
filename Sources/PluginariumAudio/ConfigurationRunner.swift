@@ -69,6 +69,8 @@ public final class ConfigurationRunner {
     /// The newest configuration's channels, and its slots by channel or effect ID.
     private var channels: [Channel] = []
     private var wanted: [UUID: PluginSlot] = [:]
+    /// Follow Start/Stop of the newest configuration, by channel or effect ID.
+    private var followsTransport: [UUID: Bool] = [:]
 
     private var hosted: [UUID: HostedPlugin] = [:]
     private var loads: Set<Load> = []
@@ -106,14 +108,20 @@ public final class ConfigurationRunner {
 
         channels = configuration.channels
         wanted = [:]
+        followsTransport = [:]
         for channel in channels {
             wanted[channel.id] = channel.slot
-            for effect in channel.effects.joined() { wanted[effect.id] = effect.slot }
+            followsTransport[channel.id] = channel.followsTransport
+            for effect in channel.effects.joined() {
+                wanted[effect.id] = effect.slot
+                followsTransport[effect.id] = effect.followsTransport
+            }
         }
         for (node, plugin) in hosted where wanted[node]?.plugin != plugin.id {
             hosted[node] = nil
             outgoing.append(plugin)
         }
+        for (node, plugin) in hosted { setFollowsTransport(of: plugin, at: node) }
         failures = [:]
         for (node, slot) in wanted where hosted[node] == nil {
             startLoad(Load(node: node, plugin: slot.plugin))
@@ -226,6 +234,7 @@ public final class ConfigurationRunner {
         isShutDown = true
         channels = []
         wanted = [:]
+        followsTransport = [:]
         hosted = [:]
         failures = [:]
         midiSlots = [:]
@@ -280,6 +289,7 @@ public final class ConfigurationRunner {
             try await seams.prepare(plugin, slot, sampleRate, maxFrames)
             guard isWanted(load) else { return }
             try seams.installCallbacks(plugin, engine)
+            setFollowsTransport(of: plugin, at: load.node)
             hosted[load.node] = plugin
         } catch {
             if isWanted(load) { failures[load.node] = error }
@@ -326,6 +336,10 @@ public final class ConfigurationRunner {
         if status != noErr { throw HostedPluginError.osStatus(status, "Input callbacks") }
         status = pr_install_host_callbacks(plugin.audioUnit, engine)
         if status != noErr { throw HostedPluginError.osStatus(status, "Host callbacks") }
+    }
+
+    private func setFollowsTransport(of plugin: HostedPlugin, at node: UUID) {
+        pr_engine_set_follows_transport(engine, plugin.audioUnit, followsTransport[node] ?? false)
     }
 
     // MARK: - Graph

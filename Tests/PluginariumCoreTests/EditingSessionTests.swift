@@ -9,6 +9,12 @@ import Testing
     #expect(session.isDirty && session.leaveAction == .askToSave)
 }
 
+@Test func changingFollowStartStopMarksDirty() {
+    var session = EditingSession(saved: .fixture(channels: [.fixture()]))
+    session.edit { $0.channels[0].slot.followsTransport = true }
+    #expect(session.isDirty)
+}
+
 @Test func cleanSessionMayBeLeft() {
     #expect(EditingSession(saved: .fixture()).leaveAction == .proceed)
     #expect(EditingSession(new: .fixture()).leaveAction == .proceed)

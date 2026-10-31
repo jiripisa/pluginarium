@@ -42,6 +42,11 @@ void pr_engine_destroy(PREngine *engine) {
         free(record);
         record = next;
     }
+    for (PRHostRecord *record = engine->hostRecords; record != NULL;) {
+        PRHostRecord *next = record->next;
+        free(record);
+        record = next;
+    }
     free(engine);
 }
 

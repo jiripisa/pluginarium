@@ -29,4 +29,48 @@ struct ModelsTests {
         let again = try JSONDecoder().decode(PluginSlot.self, from: JSONEncoder().encode(slot))
         #expect(again == slot)
     }
+
+    @Test func followStartStopStartsOffOnAnInstrument() {
+        #expect(!Channel.fixture(kind: .instrument).followsTransport)
+        #expect(!Channel.fixture(kind: PluginKind(auType: "aumf")!).followsTransport)
+    }
+
+    @Test func followStartStopStartsOnOnAnEffect() {
+        #expect(Channel.fixture(kind: .effect).followsTransport)
+        #expect(Channel.fixture(kind: PluginKind(auType: "aufx")!).followsTransport)
+        #expect(InsertEffect.fixture().followsTransport)
+    }
+
+    @Test func theSwitchOverridesTheDefault() {
+        var instrument = Channel.fixture(kind: .instrument)
+        instrument.slot.followsTransport = true
+        #expect(instrument.followsTransport)
+
+        var standalone = Channel.fixture(kind: .effect)
+        standalone.slot.followsTransport = false
+        #expect(!standalone.followsTransport)
+
+        var effect = InsertEffect.fixture()
+        effect.slot.followsTransport = false
+        #expect(!effect.followsTransport)
+    }
+
+    @Test func aSlotFromAnOlderFileTakesTheDefault() throws {
+        let json = #"{"plugin":{"type":"aufx","subtype":"test","manufacturer":"Test"},"displayName":"Old"}"#
+        let slot = try JSONDecoder().decode(PluginSlot.self, from: Data(json.utf8))
+        #expect(slot.followsTransport == nil)
+    }
+
+    @Test(arguments: [true, false])
+    func theSwitchSurvivesTheFile(follows: Bool) throws {
+        var slot = PluginSlot.fixture()
+        slot.followsTransport = follows
+        let again = try JSONDecoder().decode(PluginSlot.self, from: JSONEncoder().encode(slot))
+        #expect(again == slot)
+    }
+
+    @Test func aSlotOnTheDefaultWritesNoSwitch() throws {
+        let file = String(decoding: try JSONEncoder().encode(PluginSlot.fixture()), as: UTF8.self)
+        #expect(!file.contains("followsTransport"))
+    }
 }

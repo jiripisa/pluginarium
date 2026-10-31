@@ -38,6 +38,7 @@ private func withRouter(_ strips: [StripSpec], _ body: @MainActor (MIDIRouter, R
     let rig = Rig()
     for strip in strips {
         #expect(pr_install_host_callbacks(strip.source.audioUnit, rig.engine) == noErr)
+        pr_engine_set_follows_transport(rig.engine, strip.source.audioUnit, true)
     }
     rig.install(strips)
     defer { withExtendedLifetime(rig) {} }

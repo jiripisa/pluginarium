@@ -293,10 +293,10 @@ struct AudioEngineTests {
     }
 
     @Test("Beats follow the sample rate the engine started at")
-    func startSetsTheRenderSampleRate() throws {
+    func startSetsTheRenderSampleRate() async throws {
         let bench = Bench()
         try bench.engine.start(settings: settings(for: bench.devices[0], sampleRate: 96_000))
-        #expect(abs(renderedBeat(bench.engine.renderEngine, frames: 960) - beats(frames: 960, at: 96_000)) < 1e-9)
+        #expect(abs(try await renderedBeat(bench.engine.renderEngine, frames: 960) - beats(frames: 960, at: 96_000)) < 1e-9)
     }
 
     @Test("The largest buffer is accepted and a larger one is refused")
@@ -751,7 +751,7 @@ struct AudioEngineTests {
     }
 
     @Test("Headphones leaving hand over to the interface without touching its settings")
-    func aPlugEventWritesNothing() throws {
+    func aPlugEventWritesNothing() async throws {
         let headphones = device("headphones")
         let interface = device("interface")
         let bench = Bench(devices: [headphones, interface])
@@ -768,7 +768,7 @@ struct AudioEngineTests {
         #expect(bench.opened[1].request.settings == nil)
         #expect(bench.engine.runningSampleRate == 96_000)
         #expect(bench.engine.runningBufferFrames == 64)
-        #expect(abs(renderedBeat(bench.engine.renderEngine, frames: 960) - beats(frames: 960, at: 96_000)) < 1e-9)
+        #expect(abs(try await renderedBeat(bench.engine.renderEngine, frames: 960) - beats(frames: 960, at: 96_000)) < 1e-9)
     }
 
     @Test("Settings a followed default would not use do not stop it")
@@ -837,11 +837,11 @@ struct AudioEngineTests {
     }
 
     @Test("The render core runs at the rate the device reports")
-    func renderCoreTakesTheReportedRate() throws {
+    func renderCoreTakesTheReportedRate() async throws {
         let bench = Bench()
         bench.prepare = { $0.settings = DeviceSettings(sampleRate: 44_100, bufferFrames: 128) }
         try bench.engine.start(settings: settings(for: bench.devices[0], sampleRate: 48_000))
-        #expect(abs(renderedBeat(bench.engine.renderEngine, frames: 960) - beats(frames: 960, at: 44_100)) < 1e-9)
+        #expect(abs(try await renderedBeat(bench.engine.renderEngine, frames: 960) - beats(frames: 960, at: 44_100)) < 1e-9)
     }
 
     @Test("Running values are nil unless a device runs")
@@ -1220,34 +1220,37 @@ struct AudioEngineTests {
         Double(frames) * 2 / rate
     }
 
-    /// Renders one block at 120 BPM and returns the beat it reached.
-    private func renderedBeat(_ engine: OpaquePointer, frames: UInt32) -> Double {
+    /// Renders one block at 120 BPM and returns the beat a unit that follows the transport reads.
+    private func renderedBeat(_ engine: OpaquePointer, frames: UInt32) async throws -> Double {
+        let plugin = try await loadPlugin(type: "aumu", subtype: "PlTp", configured: false)
+        #expect(pr_install_host_callbacks(plugin.audioUnit, engine) == noErr)
+        pr_engine_set_follows_transport(engine, plugin.audioUnit, true)
         pr_engine_set_transport(engine, 120, true)
         var left = [Float](repeating: 0, count: Int(frames))
         left.withUnsafeMutableBufferPointer { samples in
             let outputs: [UnsafeMutablePointer<Float>?] = [samples.baseAddress]
             pr_engine_render(engine, frames, nil, 0, outputs, 1)
         }
-        let info = pr_host_callback_info(engine)
+        let info = pr_host_callback_info(engine, plugin.audioUnit)
         var beat = 0.0
         #expect(info.beatAndTempoProc?(info.hostUserData, &beat, nil) == noErr)
         return beat
     }
 
     @Test("Beats follow the sample rate set while stopped")
-    func sampleRateDrivesTheBeat() {
+    func sampleRateDrivesTheBeat() async throws {
         let rig = Rig()
         pr_engine_set_sample_rate(rig.engine, 96_000)
-        #expect(abs(renderedBeat(rig.engine, frames: 960) - beats(frames: 960, at: 96_000)) < 1e-9)
+        #expect(abs(try await renderedBeat(rig.engine, frames: 960) - beats(frames: 960, at: 96_000)) < 1e-9)
     }
 
     @Test("A sample rate that is not positive is ignored")
-    func badSampleRateIsIgnored() {
+    func badSampleRateIsIgnored() async throws {
         let rig = Rig()
         pr_engine_set_sample_rate(rig.engine, 0)
         pr_engine_set_sample_rate(rig.engine, -1)
         pr_engine_set_sample_rate(rig.engine, .nan)
-        #expect(abs(renderedBeat(rig.engine, frames: 960) - beats(frames: 960, at: sampleRate)) < 1e-9)
+        #expect(abs(try await renderedBeat(rig.engine, frames: 960) - beats(frames: 960, at: sampleRate)) < 1e-9)
     }
 
     // MARK: - A real device

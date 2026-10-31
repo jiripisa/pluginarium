@@ -32,6 +32,7 @@ public enum EffectMenuAction: Equatable, Sendable {
     case togglePlugin
     case presets
     case sidechain
+    case toggleFollowsTransport
     case addParallel(row: Int)
     case moveToSeries
     case remove
@@ -50,13 +51,14 @@ public enum PluginMenus {
     /// `sidechain` is what the plugin's sidechain input reads, nil when it has none. A plugin that
     /// does not run has no window and no sound to pick, but its place in the chain can still change.
     public static func effect(
-        rowSize: Int, rowIndex: Int, isOpen: Bool, isHosted: Bool, presetLabel: String, sidechain: String?
+        rowSize: Int, rowIndex: Int, isOpen: Bool, isHosted: Bool, presetLabel: String, sidechain: String?, followsTransport: Bool
     ) -> [MenuEntry<EffectMenuAction>] {
         var entries: [MenuEntry<EffectMenuAction>] = [
             .item(isOpen ? "Close plugin" : "Open plugin", action: .togglePlugin, isEnabled: isHosted),
             .item("Presets: \(presetLabel)", action: .presets, isEnabled: isHosted),
         ]
         if let sidechain { entries.append(.item("Sidechain in: \(sidechain)", action: .sidechain)) }
+        entries.append(.item("Follow Start/Stop: \(followsTransport ? "On" : "Off")", action: .toggleFollowsTransport))
         entries.append(.separator)
         if rowSize < Channel.maxParallel { entries.append(.item("Add parallel effect", action: .addParallel(row: rowIndex))) }
         if rowSize > 1 { entries.append(.item("Move to series", action: .moveToSeries)) }

@@ -410,6 +410,140 @@ struct RunnerTests {
         }
     }
 
+    // MARK: - Follow Start/Stop
+
+    private func following(_ channel: Channel, _ follows: Bool?) -> Channel {
+        var channel = channel
+        channel.slot.followsTransport = follows
+        return channel
+    }
+
+    private func following(_ effect: InsertEffect, _ follows: Bool?) -> InsertEffect {
+        var effect = effect
+        effect.slot.followsTransport = follows
+        return effect
+    }
+
+    /// Whether the plugin at `channel`, or its `effect`, reads a transport that plays.
+    private func seesPlaying(_ channel: Channel, effect: InsertEffect? = nil, _ runner: ConfigurationRunner, _ rig: Rig) throws -> Bool {
+        let plugin = try #require(runner.plugin(channel: channel.id, effect: effect?.id))
+        return try transport(of: plugin.audioUnit, in: rig.engine).playing.boolValue
+    }
+
+    @Test func anInstrumentOnTheDefaultKeepsTheTempoAndStaysStopped() async throws {
+        try await withRunner { runner, rig in
+            await runner.apply(configuration(instrumentChannel(tempoID)))
+            pr_engine_set_transport(rig.engine, 124, true)
+            _ = rig.render()
+            let output = rig.render()
+            expectLevel(output[0], 0.124)
+            expectLevel(output[1], -1)
+        }
+    }
+
+    @Test func aNewPluginGetsTheSwitch() async throws {
+        try await withRunner { runner, rig in
+            let instrument = following(instrumentChannel(tempoID), true)
+            let standalone = effectChannel(out: out23)
+            let silenced = following(effectChannel(out: out45), false)
+            await runner.apply(configuration(instrument, standalone, silenced))
+            pr_engine_set_transport(rig.engine, 120, true)
+            _ = rig.render()
+            expectLevel(rig.render()[1], Float(blockFrames) * 2 / Float(sampleRate))
+            try #expect(seesPlaying(standalone, runner, rig))
+            try #expect(!seesPlaying(silenced, runner, rig))
+        }
+    }
+
+    @Test func aChangeReachesTheRunningPluginWithoutReloadingIt() async throws {
+        try await withRunner { runner, rig in
+            let gate = gated(runner)
+            await gate.open(tempoID)
+            let channel = instrumentChannel(tempoID)
+            await runner.apply(configuration(channel))
+            let plugin = try #require(runner.plugin(channel: channel.id, effect: nil))
+            pr_engine_set_transport(rig.engine, 120, true)
+            expectLevel(rig.render()[1], -1)
+
+            await runner.apply(configuration(following(channel, true)))
+            #expect(runner.plugin(channel: channel.id, effect: nil) === plugin)
+            expectLevel(rig.render()[1], Float(blockFrames) * 2 / Float(sampleRate))
+
+            await runner.apply(configuration(following(channel, nil)))
+            #expect(runner.plugin(channel: channel.id, effect: nil) === plugin)
+            expectLevel(rig.render()[1], -1)
+            #expect(await gate.requested == [tempoID])
+        }
+    }
+
+    @Test func anInsertEffectGetsItsOwnSwitch() async throws {
+        try await withRunner { runner, rig in
+            let onTheDefault = insert()
+            let silenced = following(insert(), false)
+            var channel = instrumentChannel(effects: [[onTheDefault, silenced]])
+            await runner.apply(configuration(channel))
+            pr_engine_set_transport(rig.engine, 120, true)
+            _ = rig.render()
+            try #expect(!seesPlaying(channel, runner, rig))
+            try #expect(seesPlaying(channel, effect: onTheDefault, runner, rig))
+            try #expect(!seesPlaying(channel, effect: silenced, runner, rig))
+
+            let plugin = runner.plugin(channel: channel.id, effect: silenced.id)
+            channel.effects = [[onTheDefault, following(silenced, true)]]
+            await runner.apply(configuration(channel))
+            #expect(runner.plugin(channel: channel.id, effect: silenced.id) === plugin)
+            try #expect(!seesPlaying(channel, runner, rig))
+            try #expect(seesPlaying(channel, effect: onTheDefault, runner, rig))
+            try #expect(seesPlaying(channel, effect: silenced, runner, rig))
+        }
+    }
+
+    @Test func aPluginHasItsSwitchBeforeItFirstEntersAGraph() async throws {
+        try await withRunner { runner, rig in
+            pr_engine_set_transport(rig.engine, 120, true)
+            _ = rig.render()
+            var seenByGraphs: [Bool] = []
+            runner.seams.installGraph = { engine, strips, count in
+                if let unit = strips?.pointee.source, count > 0 {
+                    seenByGraphs.append((try? transport(of: unit, in: engine).playing.boolValue) ?? false)
+                }
+                return pr_engine_install_graph(engine, strips, count)
+            }
+            await runner.apply(configuration(following(instrumentChannel(), true)))
+            #expect(seenByGraphs == [true])
+        }
+    }
+
+    @Test func aPluginStillLoadingGetsTheNewestSwitch() async throws {
+        try await withRunner { runner, rig in
+            let gate = gated(runner)
+            let channel = instrumentChannel(tempoID)
+            let first = Task { await runner.apply(configuration(channel)) }
+            await gate.waitUntilRequested(1)
+            let second = Task { await runner.apply(configuration(following(channel, true))) }
+            await Task.yield()
+            await gate.open(tempoID)
+            await first.value
+            await second.value
+            pr_engine_set_transport(rig.engine, 120, true)
+            _ = rig.render()
+            try #expect(seesPlaying(channel, runner, rig))
+        }
+    }
+
+    @Test func aReplacedPluginStartsFromTheNewSwitch() async throws {
+        try await withRunner { runner, rig in
+            let channel = following(instrumentChannel(tempoID), true)
+            await runner.apply(configuration(channel))
+            var replaced = following(channel, nil)
+            replaced.slot.plugin = instrumentID
+            await runner.apply(configuration(replaced))
+            pr_engine_set_transport(rig.engine, 120, true)
+            _ = rig.render()
+            try #expect(!seesPlaying(replaced, runner, rig))
+        }
+    }
+
     // MARK: - Edits
 
     @Test func editingKeepsLoadedPlugins() async throws {

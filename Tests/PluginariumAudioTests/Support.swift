@@ -191,6 +191,25 @@ func lifeEvent(_ step: UnitLifeStep, subtype: String) async -> UnitLifeEvent? {
     return nil
 }
 
+/// Starts from values the expected states contradict, so a field left unwritten fails the test.
+struct TransportReading: Equatable {
+    var playing: DarwinBoolean = true
+    var changed: DarwinBoolean = true
+    var sample: Float64 = -1
+    var cycling: DarwinBoolean = true
+    var cycleStart: Float64 = -1
+    var cycleEnd: Float64 = -1
+}
+
+/// What `unit` reads between blocks. Rendering nothing, it cannot move the transport itself.
+func transport(of unit: AudioUnit, in engine: OpaquePointer) throws -> TransportReading {
+    let info = pr_host_callback_info(engine, unit)
+    let read = try #require(info.transportStateProc)
+    var state = TransportReading()
+    #expect(read(info.hostUserData, &state.playing, &state.changed, &state.sample, &state.cycling, &state.cycleStart, &state.cycleEnd) == noErr)
+    return state
+}
+
 struct EngineHandle: @unchecked Sendable {
     let engine: OpaquePointer
 }

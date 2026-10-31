@@ -439,13 +439,15 @@ final class AppModel {
         let entries = PluginMenus.effect(
             rowSize: channel.effects[rowIndex].count, rowIndex: rowIndex, isOpen: pluginWindows.isOpen(channel: id, effect: effectID),
             isHosted: hostedPlugin(at: location) != nil, presetLabel: presetLabel(for: effect.slot),
-            sidechain: hasSidechain ? effect.sidechainIn?.label(prefix: "In") ?? "Off" : nil
+            sidechain: hasSidechain ? effect.sidechainIn?.label(prefix: "In") ?? "Off" : nil,
+            followsTransport: effect.followsTransport
         )
         showMenu(entries, anchor: anchor) { [weak self] action in
             switch action {
             case .togglePlugin: self?.pluginWindows.toggle(channel: id, effect: effectID)
             case .presets: self?.showPresetMenu(channel: id, effect: effectID, anchor: anchor)
             case .sidechain: self?.showSidechainMenu(channel: id, effect: effectID, anchor: anchor)
+            case .toggleFollowsTransport: self?.edit { $0.updateSlot(at: location) { $0.followsTransport = !effect.followsTransport } }
             case .addParallel(let row): self?.beginAddParallelEffect(channel: id, row: row)
             case .moveToSeries: self?.editChannel(id) { $0.moveToSeries(effectID: effectID) }
             case .remove: self?.editChannel(id) { $0.removeEffect(effectID: effectID) }

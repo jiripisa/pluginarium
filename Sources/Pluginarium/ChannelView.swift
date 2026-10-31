@@ -20,7 +20,12 @@ struct ChannelView: View {
             if fields.audioIn { audioIn }
             if fields.sidechainIn { sidechainIn }
             plugin
-            if hasPluginControls { openButton }
+            if hasPluginControls {
+                VStack(spacing: 4) {
+                    openButton
+                    followButton
+                }
+            }
             effects
             MeterView(channel: channel.id, audio: model.audio)
             audioOut
@@ -204,45 +209,64 @@ struct ChannelView: View {
 
     private var openButton: some View {
         Button { model.pluginWindows.toggle(channel: channel.id, effect: nil) } label: {
-            HStack(spacing: 7) {
-                LED(tone: isWindowOpen ? .on : .off)
-                Text(isWindowOpen ? "Close plugin" : "Open plugin")
-                    .font(.panelText(12.5))
-                    .panelSpacing(0.06, size: 12.5)
-                    .textCase(.uppercase)
-            }
-            .foregroundStyle(Color.legend)
-            .frame(maxWidth: .infinity)
-            .padding(4)
-            .overlay(Rectangle().strokeBorder(Color.lineStrong, lineWidth: 1))
-            .contentShape(Rectangle())
-            .opacity(isHosted ? 1 : 0.5)
+            ledKey(isWindowOpen ? "Close plugin" : "Open plugin", isOn: isWindowOpen)
+                .opacity(isHosted ? 1 : 0.5)
         }
         .buttonStyle(.plain)
         .disabled(!isHosted)
     }
 
+    private var followButton: some View {
+        Button { edit { $0.slot.followsTransport = !$0.followsTransport } } label: {
+            ledKey("Follow Start/Stop", isOn: channel.followsTransport)
+        }
+        .buttonStyle(.plain)
+        .help("On: the plugin starts and stops with the MIDI clock. Off: it only gets the tempo.")
+        .accessibilityValue(channel.followsTransport ? "On" : "Off")
+    }
+
+    /// `.open`.
+    private func ledKey(_ title: String, isOn: Bool) -> some View {
+        HStack(spacing: 7) {
+            LED(tone: isOn ? .on : .off)
+            Text(title)
+                .font(.panelText(12.5))
+                .panelSpacing(0.06, size: 12.5)
+                .textCase(.uppercase)
+        }
+        .foregroundStyle(Color.legend)
+        .frame(maxWidth: .infinity)
+        .padding(4)
+        .overlay(Rectangle().strokeBorder(Color.lineStrong, lineWidth: 1))
+        .contentShape(Rectangle())
+    }
+
+    /// Gets the height the rest of the channel leaves, so in a low window its rows scroll instead of
+    /// running into the meter.
     private var effects: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Legend("Effects")
-            ForEach(Array(channel.effects.enumerated()), id: \.offset) { _, row in
-                EffectRow(channel: channel, row: row)
-            }
-            Button { model.beginAddEffect(channel: channel.id) } label: {
-                Text("Add effect")
-                    .font(.panelText(12.5))
-                    .foregroundStyle(Color.muted)
-                    .padding(.vertical, 4)
-                    .padding(.horizontal, 7)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .overlay(Rectangle().strokeBorder(Color.line, style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            if case .routingUnavailable(let label) = status {
-                warning("\(label) is not available on this device")
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 5) {
+                Legend("Effects")
+                ForEach(Array(channel.effects.enumerated()), id: \.offset) { _, row in
+                    EffectRow(channel: channel, row: row)
+                }
+                Button { model.beginAddEffect(channel: channel.id) } label: {
+                    Text("Add effect")
+                        .font(.panelText(12.5))
+                        .foregroundStyle(Color.muted)
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .overlay(Rectangle().strokeBorder(Color.line, style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if case .routingUnavailable(let label) = status {
+                    warning("\(label) is not available on this device")
+                }
             }
         }
+        .scrollBounceBehavior(.basedOnSize)
         .frame(maxHeight: .infinity, alignment: .top)
         .frame(minHeight: 96, alignment: .top)
     }

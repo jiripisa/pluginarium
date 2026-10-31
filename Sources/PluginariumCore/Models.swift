@@ -114,20 +114,27 @@ public struct PluginSlot: Codable, Equatable, Sendable {
     /// The owner changed the sound after the last preset was picked. A saved configuration holds
     /// every plugin's state, so `state` alone cannot tell a plugin that was touched from one that was not.
     public var isCustomSound: Bool
+    /// The Follow Start/Stop switch. Nil is the default, which depends on where the plugin sits:
+    /// read `Channel.followsTransport` or `InsertEffect.followsTransport`.
+    public var followsTransport: Bool?
 
-    public init(plugin: PluginID, displayName: String, presetName: String? = nil, state: Data? = nil, isCustomSound: Bool = false) {
+    public init(
+        plugin: PluginID, displayName: String, presetName: String? = nil, state: Data? = nil, isCustomSound: Bool = false,
+        followsTransport: Bool? = nil
+    ) {
         self.plugin = plugin
         self.displayName = displayName
         self.presetName = presetName
         self.state = state
         self.isCustomSound = isCustomSound
+        self.followsTransport = followsTransport
     }
 
     private enum CodingKeys: String, CodingKey {
-        case plugin, displayName, presetName, state, isCustomSound
+        case plugin, displayName, presetName, state, isCustomSound, followsTransport
     }
 
-    /// A file from before `isCustomSound` has no such key.
+    /// A file from before `isCustomSound` or `followsTransport` has no such key.
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         plugin = try values.decode(PluginID.self, forKey: .plugin)
@@ -135,6 +142,7 @@ public struct PluginSlot: Codable, Equatable, Sendable {
         presetName = try values.decodeIfPresent(String.self, forKey: .presetName)
         state = try values.decodeIfPresent(Data.self, forKey: .state)
         isCustomSound = try values.decodeIfPresent(Bool.self, forKey: .isCustomSound) ?? false
+        followsTransport = try values.decodeIfPresent(Bool.self, forKey: .followsTransport)
     }
 }
 
@@ -148,6 +156,9 @@ public struct InsertEffect: Codable, Equatable, Identifiable, Sendable {
         self.slot = slot
         self.sidechainIn = sidechainIn
     }
+
+    /// Whether the plugin sees the transport. On unless switched off, like every effect.
+    public var followsTransport: Bool { slot.followsTransport ?? true }
 }
 
 public struct Channel: Codable, Equatable, Identifiable, Sendable {
@@ -180,6 +191,10 @@ public struct Channel: Codable, Equatable, Identifiable, Sendable {
         self.audioOut = audioOut
         self.effects = effects
     }
+
+    /// Whether the plugin sees the transport. An instrument starts off, so a sequencer never starts
+    /// a part the owner did not ask for, and a standalone effect starts on.
+    public var followsTransport: Bool { slot.followsTransport ?? (kind == .effect) }
 }
 
 public struct Configuration: Codable, Equatable, Identifiable, Sendable {

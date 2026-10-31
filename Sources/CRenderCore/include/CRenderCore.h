@@ -40,7 +40,8 @@ typedef struct PREngine PREngine;
 /// Returns NULL when maxFrames is 0 or sampleRate is not positive.
 PREngine *pr_engine_create(uint32_t maxFrames, double sampleRate);
 
-/// Call only after audio has stopped. Frees all graphs and input records.
+/// Call only after audio has stopped and every unit given callbacks here has been disposed, since a
+/// unit can call its host callbacks at any time. Frees all graphs and records.
 void pr_engine_destroy(PREngine *engine);
 
 /// Copies its input and allocates all buffers; the arrays can be released on return.
@@ -98,11 +99,18 @@ void pr_engine_read_meters(PREngine *engine, uint32_t strip, float *left, float 
 /// Smoothed ratio of render time to block duration.
 double pr_engine_load(PREngine *engine);
 
-/// Installs beat, tempo and transport callbacks reading the engine's transport.
+/// Installs beat, tempo and transport callbacks reading the engine's transport, and gives the unit
+/// its record. The unit does not follow the transport until pr_engine_set_follows_transport says
+/// so, and calling this again turns that off: a disposed unit's address can come back as a new unit.
 OSStatus pr_install_host_callbacks(AudioUnit unit, PREngine *engine);
 
-/// The callbacks pr_install_host_callbacks gives a unit. The property itself cannot be read back.
-HostCallbackInfo pr_host_callback_info(PREngine *engine);
+/// Whether the transport reaches the unit. Off, the unit reads the tempo and a transport stopped at
+/// beat 0. The next callback takes the change. Ignored for a unit that has no host callbacks.
+void pr_engine_set_follows_transport(PREngine *engine, AudioUnit unit, bool follows);
+
+/// The callbacks pr_install_host_callbacks gave the unit, all NULL if it gave it none. The property
+/// itself cannot be read back.
+HostCallbackInfo pr_host_callback_info(PREngine *engine, AudioUnit unit);
 
 /// Gives the unit its input record and sets the render callback on every input bus. Call it
 /// before installing a graph with the unit. Safe to call again for the same unit. Bus 0 carries

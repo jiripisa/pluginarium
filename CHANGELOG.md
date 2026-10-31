@@ -16,3 +16,4 @@
 - Fixed a crash when a plugin was unloaded.
 - A new channel whose usual output (or input, for an effect) does not exist on your audio device takes the first free stereo pair the device has, so it plays at once instead of staying silent.
 - The configuration menu in the top bar marks the current configuration in amber, like the other menus.
+- Follow Start/Stop on every channel and insert effect, saved in the configuration. Tempo always reaches a plugin, but it sees the transport start and stop only with the switch on. Instruments start with it off, so an internal sequencer stays still until you ask for it, and effects start with it on.

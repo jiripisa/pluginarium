@@ -148,6 +148,19 @@ struct AddPickerTests {
         #expect(cleared.sidechainIn == .mono(2))
     }
 
+    @Test("Replacing a plugin puts Follow Start/Stop back on the default")
+    func replacingResetsFollowStartStop() {
+        var instrument = Channel.fixture(kind: .instrument)
+        instrument.slot.followsTransport = true
+        let replaced = AddPicker.replacing(instrument, with: tb303, preset: .defaultSound, capabilities: nil)
+        #expect(replaced.slot.followsTransport == nil)
+        #expect(!replaced.followsTransport)
+
+        var standalone = Channel.fixture(kind: .effect)
+        standalone.slot.followsTransport = false
+        #expect(AddPicker.replacing(standalone, with: tb303, preset: .defaultSound, capabilities: nil).followsTransport)
+    }
+
     @Test("An effect is inserted as a new row, or into a row next to the others")
     func inserting() {
         let first = InsertEffect.fixture()

@@ -30,6 +30,15 @@ typedef struct PRInputRecord {
     float *scratch;             // handed to units that pull with NULL buffers
 } PRInputRecord;
 
+/// One per unit, for the life of the engine: the unit's host callbacks get it as hostUserData.
+/// Zeroed memory means off.
+typedef struct PRHostRecord {
+    struct PRHostRecord *next; // control thread only
+    AudioUnit unit;            // control thread only
+    const PREngine *engine;
+    _Atomic(bool) followsTransport;
+} PRHostRecord;
+
 typedef struct {
     AudioUnit unit;
     PRInputRecord *record; // NULL: the unit reads silence
@@ -86,6 +95,7 @@ struct PREngine {
     uint64_t installedGeneration;
     PRGraph *latest; // newest installed graph, which stays alive until the next install
     PRInputRecord *records;
+    PRHostRecord *hostRecords;
 
     // Render thread only.
     PRGraph *current;
