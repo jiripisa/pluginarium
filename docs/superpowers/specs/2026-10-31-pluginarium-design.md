@@ -169,7 +169,7 @@ The list of plugins installed on the Mac mini is collected in the studio session
 
 Prove these with the smallest possible test before building on them.
 
-1. **Preset recall.** The preset design depends on a plugin restoring the selected sound from its saved state. Not tested yet. Test it with TB-303 and JUPITER-8 on the MacBook Air first. If it fails, the preset design has to be reopened with the owner.
+1. **Preset recall.** The preset design depends on a plugin restoring the selected sound from its saved state. Proven on 2026-10-31: the owner picked a sound in TB-303 and in JUPITER-8, saved state with the probe, and both showed the same sound after restoring it in a new process.
 2. **Multichannel routing.** The app must address individual inputs and outputs of the AudioFuse from one process. This is the core of the app, so it goes first in the studio session.
 3. **Audio input and sidechain paths.** No plugin on the MacBook Air proves them with a real vocoder or sidechain compressor, because all its effects are Apple's and none is known to expose a sidechain. Build against a small test Audio Unit that declares these inputs, then confirm in the studio with one of the owner's purchased plugins. Which one is chosen at that point.
 4. **Latency through the Mac.** Audio in and sidechain signals pass through the Mac and arrive one round trip late, and a plugin played over MIDI sounds later than hardware triggered by the same sequencer. Measure this with the AudioFuse at the default buffer size and report the numbers. There is no fixed limit, the owner judges it by ear, and any remaining offset is corrected on the sequencer for now.
