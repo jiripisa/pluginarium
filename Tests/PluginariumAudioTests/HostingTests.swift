@@ -51,4 +51,15 @@ struct HostingTests {
         if let first = names.first { try plugin.selectFactoryPreset(first) }
         #expect(throws: (any Error).self) { try plugin.selectFactoryPreset("No such preset") }
     }
+
+    @Test("Four-character codes round-trip losslessly, including bytes >= 0x80")
+    func fourCCRoundTrip() {
+        for code: FourCharCode in [0x5061_6C6E, 0x8AB0_FFE9, 0x0000_0080, 0x6162_2020] {
+            #expect(fourCC(string(fourCC: code)) == code)
+        }
+        #expect(string(fourCC: 0x8AB0_FFE9) != string(fourCC: 0x8AB1_FFE9))
+        #expect(fourCC("ab") == 0x6162_2020)
+        let id = PluginID(type: "aumu", subtype: "ab", manufacturer: string(fourCC: 0x8AB0_FFE9))
+        #expect(PluginID(id.componentDescription).manufacturer == id.manufacturer)
+    }
 }

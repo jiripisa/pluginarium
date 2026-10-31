@@ -91,11 +91,14 @@ public final class HostedPlugin: @unchecked Sendable {
     public func restore(_ state: Data) throws {
         guard let plist = try PropertyListSerialization.propertyList(from: state, options: [], format: nil) as? NSDictionary
         else { throw HostedPluginError.invalidState }
-        var info = Unmanaged.passUnretained(plist as CFDictionary)
-        try check(
-            AudioUnitSetProperty(audioUnit, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0, &info, UInt32(MemoryLayout<Unmanaged<CFDictionary>>.size)),
-            "ClassInfo"
-        )
+        let dictionary = plist as CFDictionary
+        var info = Unmanaged.passUnretained(dictionary)
+        try withExtendedLifetime(dictionary) {
+            try check(
+                AudioUnitSetProperty(audioUnit, kAudioUnitProperty_ClassInfo, kAudioUnitScope_Global, 0, &info, UInt32(MemoryLayout<Unmanaged<CFDictionary>>.size)),
+                "ClassInfo"
+            )
+        }
     }
 
     public func factoryPresets() -> [String] {
@@ -106,11 +109,14 @@ public final class HostedPlugin: @unchecked Sendable {
         guard let preset = presets().first(where: { $0.name == name }) else {
             throw HostedPluginError.unknownPreset(name)
         }
-        var value = AUPreset(presetNumber: preset.number, presetName: Unmanaged.passUnretained(name as CFString))
-        try check(
-            AudioUnitSetProperty(audioUnit, kAudioUnitProperty_PresentPreset, kAudioUnitScope_Global, 0, &value, UInt32(MemoryLayout<AUPreset>.size)),
-            "PresentPreset"
-        )
+        let cfName = name as CFString
+        var value = AUPreset(presetNumber: preset.number, presetName: Unmanaged.passUnretained(cfName))
+        try withExtendedLifetime(cfName) {
+            try check(
+                AudioUnitSetProperty(audioUnit, kAudioUnitProperty_PresentPreset, kAudioUnitScope_Global, 0, &value, UInt32(MemoryLayout<AUPreset>.size)),
+                "PresentPreset"
+            )
+        }
     }
 
     // MARK: - Private

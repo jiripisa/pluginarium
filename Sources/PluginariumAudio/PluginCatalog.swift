@@ -23,13 +23,20 @@ extension PluginID {
     }
 }
 
+/// Codes map byte-for-byte to Latin-1 characters, so every four-byte code round-trips
+/// exactly (real manufacturer codes contain bytes >= 0x80). Short strings are space-padded.
 func fourCC(_ string: String) -> FourCharCode {
-    string.utf8.prefix(4).reduce(FourCharCode(0)) { ($0 << 8) | FourCharCode($1) }
+    var bytes = string.unicodeScalars.prefix(4).map { $0.value <= 0xFF ? UInt8($0.value) : UInt8(ascii: "?") }
+    while bytes.count < 4 { bytes.append(UInt8(ascii: " ")) }
+    return bytes.reduce(FourCharCode(0)) { ($0 << 8) | FourCharCode($1) }
 }
 
 func string(fourCC code: FourCharCode) -> String {
-    let bytes = [24, 16, 8, 0].map { UInt8((code >> $0) & 0xFF) }
-    return String(decoding: bytes, as: UTF8.self)
+    var scalars = String.UnicodeScalarView()
+    for shift in [24, 16, 8, 0] {
+        scalars.append(Unicode.Scalar(UInt8((code >> FourCharCode(shift)) & 0xFF)))
+    }
+    return String(scalars)
 }
 
 /// Lists the installed Audio Units that can be hosted: instruments, MIDI-controlled effects and effects.
