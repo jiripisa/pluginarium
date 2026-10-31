@@ -66,6 +66,50 @@ import Testing
         #expect(tracker.isPlaying)
     }
 
+    @Test func aNewTrackerReadsAsNothingKnown() {
+        let reading = ClockTracker().reading
+        #expect(reading.tempo == nil)
+        #expect(!reading.isPlaying)
+        #expect(!reading.isClockRunning(at: 0))
+    }
+
+    @Test func aReadingHasNoTempoUntilTwoTicksGiveOne() {
+        var tracker = ClockTracker()
+        let interval = 60.0 / 124.0 / 24.0
+        tracker.receive(.clock, at: 0)
+        #expect(tracker.reading.tempo == nil)
+        tracker.receive(.clock, at: interval)
+        #expect(abs((tracker.reading.tempo ?? 0) - 124) < 0.1)
+    }
+
+    @Test func aReadingKeepsTheTempoThroughAGap() {
+        var tracker = ClockTracker()
+        let interval = 60.0 / 124.0 / 24.0
+        for tick in 0..<10 { tracker.receive(.clock, at: Double(tick) * interval) }
+        tracker.receive(.clock, at: 5)
+        #expect(abs((tracker.reading.tempo ?? 0) - 124) < 0.1)
+    }
+
+    @Test func aReadingAnswersAsTheTrackerDid() {
+        var tracker = ClockTracker()
+        tracker.receive(.start, at: 0)
+        tracker.receive(.clock, at: 0)
+        let reading = tracker.reading
+        #expect(reading.isPlaying)
+        #expect(reading.isClockRunning(at: 1.0))
+        #expect(!reading.isClockRunning(at: 1.1))
+    }
+
+    @Test func aReadingStaysAsItWasWhenTheTrackerMovesOn() {
+        var tracker = ClockTracker()
+        tracker.receive(.clock, at: 0)
+        let reading = tracker.reading
+        tracker.receive(.clock, at: 5)
+        tracker.receive(.start, at: 5)
+        #expect(!reading.isPlaying)
+        #expect(!reading.isClockRunning(at: 5))
+    }
+
     @Test func channelVoiceEventsAreIgnored() {
         var tracker = ClockTracker()
         tracker.receive(.channelVoice(status: 0x90, data1: 60, data2: 100), at: 0)

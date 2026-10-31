@@ -33,8 +33,32 @@ public struct ClockTracker: Sendable {
     }
 
     public func isClockRunning(at seconds: Double) -> Bool {
-        guard let last = lastTickTime else { return false }
-        return seconds - last <= Self.clockTimeout
+        reading.isClockRunning(at: seconds)
+    }
+
+    /// A copy of what the tracker knows, for a thread that does not own it.
+    public var reading: Reading {
+        Reading(tempo: lastTempo, isPlaying: isPlaying, lastTickTime: lastTickTime)
+    }
+
+    /// Plain values, so taking one shares nothing with the tracker and its next tick still does not
+    /// allocate. A copy of the tracker itself shares the tick storage until that tick.
+    public struct Reading: Equatable, Sendable {
+        /// Nil until two ticks have given a tempo.
+        public let tempo: Double?
+        public let isPlaying: Bool
+        private let lastTickTime: Double?
+
+        fileprivate init(tempo: Double?, isPlaying: Bool, lastTickTime: Double?) {
+            self.tempo = tempo
+            self.isPlaying = isPlaying
+            self.lastTickTime = lastTickTime
+        }
+
+        public func isClockRunning(at seconds: Double) -> Bool {
+            guard let last = lastTickTime else { return false }
+            return seconds - last <= ClockTracker.clockTimeout
+        }
     }
 
     private mutating func receiveTick(at seconds: Double) {
