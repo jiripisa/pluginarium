@@ -38,3 +38,10 @@ extension Configuration {
         Configuration(id: UUID(), name: name, channels: channels)
     }
 }
+
+/// A fresh, empty directory under the system temporary directory.
+func tempDir() throws -> URL {
+    let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url
+}
