@@ -37,6 +37,7 @@ typedef struct PRHostRecord {
     AudioUnit unit;            // control thread only
     const PREngine *engine;
     _Atomic(bool) followsTransport;
+    _Atomic(uint64_t) flipBlock; // the block that reports the switch flipped, 0 for none
 } PRHostRecord;
 
 typedef struct {
@@ -102,6 +103,7 @@ struct PREngine {
     double sampleTime;
     bool wasPlaying;
 
+    _Atomic(uint64_t) block; // counts render blocks from 1, so 0 names no block
     _Atomic(double) tempo;
     _Atomic(bool) playing;
     _Atomic(bool) transportChanged;

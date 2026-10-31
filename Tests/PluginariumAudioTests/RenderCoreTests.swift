@@ -713,6 +713,7 @@ struct RenderCoreTests {
     @Test("A unit whose switch was never set does not follow")
     func theDefaultIsOff() async throws {
         let (rig, plugin) = try await tempoRig(follows: nil)
+        #expect(try changedReadings(of: plugin.audioUnit, in: rig.engine) == [false, false, false, false])
         pr_engine_set_transport(rig.engine, 124, true)
         for _ in 0..<500 { _ = rig.render() }
         let output = rig.render()
@@ -754,19 +755,77 @@ struct RenderCoreTests {
         expectLevel(output[3], -1)
     }
 
-    @Test("A running unit takes the switch at its next block, at the engine's position")
+    @Test("A running unit takes the switch at its next block, at the engine's position, and hears of it")
     func theSwitchReachesARunningUnit() async throws {
         let (rig, plugin) = try await tempoRig(follows: false)
+        let quiet = [false, false, false, false]
+        let pulse = [true, true, true, true]
         pr_engine_set_transport(rig.engine, 120, true)
         for _ in 0..<100 { _ = rig.render() }
         expectLevel(rig.render()[1], -1)
+        #expect(try changedReadings(of: plugin.audioUnit, in: rig.engine) == quiet)
 
         pr_engine_set_follows_transport(rig.engine, plugin.audioUnit, true)
         expectLevel(rig.render()[1], 101 * Float(blockFrames) * 2 / Float(sampleRate))
+        #expect(try changedReadings(of: plugin.audioUnit, in: rig.engine) == pulse)
+        _ = rig.render()
+        #expect(try changedReadings(of: plugin.audioUnit, in: rig.engine) == quiet)
 
         pr_engine_set_follows_transport(rig.engine, plugin.audioUnit, false)
         expectLevel(rig.render()[1], -1)
-        #expect(try transport(of: plugin.audioUnit, in: rig.engine).sample == 0)
+        #expect(try changedReadings(of: plugin.audioUnit, in: rig.engine) == pulse)
+        let stopped = try transport(of: plugin.audioUnit, in: rig.engine)
+        #expect(stopped.playing == false && stopped.sample == 0)
+        #expect(try musicalTime(of: plugin.audioUnit, in: rig.engine).beat == 0)
+        _ = rig.render()
+        #expect(try changedReadings(of: plugin.audioUnit, in: rig.engine) == quiet)
+    }
+
+    @Test("A flip waits for the next block, so a block under way does not report it", arguments: [true, false])
+    func aFlipStartsAtTheNextBlock(follows: Bool) async throws {
+        let (rig, plugin) = try await tempoRig(follows: follows)
+        pr_engine_set_transport(rig.engine, 120, true)
+        for _ in 0..<3 { _ = rig.render() }
+
+        pr_engine_set_follows_transport(rig.engine, plugin.audioUnit, !follows)
+        #expect(try changedReadings(of: plugin.audioUnit, in: rig.engine) == [false, false, false, false])
+        _ = rig.render()
+        #expect(try changedReadings(of: plugin.audioUnit, in: rig.engine) == [true, true, true, true])
+    }
+
+    @Test("Setting the value a unit already has reports nothing", arguments: [true, false])
+    func settingTheSameValueIsNoFlip(follows: Bool) async throws {
+        let (rig, plugin) = try await tempoRig(follows: follows)
+        pr_engine_set_transport(rig.engine, 120, true)
+        for _ in 0..<3 { _ = rig.render() }
+
+        pr_engine_set_follows_transport(rig.engine, plugin.audioUnit, follows)
+        for _ in 0..<2 {
+            _ = rig.render()
+            #expect(try changedReadings(of: plugin.audioUnit, in: rig.engine) == [false, false, false, false])
+        }
+    }
+
+    @Test("A flip reports a change with the transport stopped too", arguments: [true, false])
+    func aFlipWhileStopped(follows: Bool) async throws {
+        let (rig, plugin) = try await tempoRig(follows: follows)
+        for _ in 0..<3 { _ = rig.render() }
+
+        pr_engine_set_follows_transport(rig.engine, plugin.audioUnit, !follows)
+        _ = rig.render()
+        #expect(try changedReadings(of: plugin.audioUnit, in: rig.engine) == [true, true, true, true])
+        _ = rig.render()
+        #expect(try changedReadings(of: plugin.audioUnit, in: rig.engine) == [false, false, false, false])
+    }
+
+    @Test("A unit given the callbacks again gets no change meant for the one before it")
+    func installingAgainDropsAWaitingFlip() async throws {
+        let (rig, plugin) = try await tempoRig(follows: false)
+        _ = rig.render()
+        pr_engine_set_follows_transport(rig.engine, plugin.audioUnit, true)
+        #expect(pr_install_host_callbacks(plugin.audioUnit, rig.engine) == noErr)
+        _ = rig.render()
+        #expect(try changedReadings(of: plugin.audioUnit, in: rig.engine) == [false, false, false, false])
     }
 
     @Test("Both transport callbacks say stopped to a unit that does not follow")

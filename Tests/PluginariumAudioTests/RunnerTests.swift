@@ -476,6 +476,28 @@ struct RunnerTests {
         }
     }
 
+    @Test func onlyAnApplyThatFlipsTheSwitchReportsAChange() async throws {
+        try await withRunner { runner, rig in
+            let channel = instrumentChannel(tempoID)
+            await runner.apply(configuration(channel))
+            let unit = try #require(runner.plugin(channel: channel.id, effect: nil)).audioUnit
+            pr_engine_set_transport(rig.engine, 120, true)
+            for _ in 0..<3 { _ = rig.render() }
+
+            var edited = channel
+            edited.midiIn = MIDIRoute(sourceName: "A", channel: .all)
+            await runner.apply(configuration(edited))
+            _ = rig.render()
+            #expect(try changedReadings(of: unit, in: rig.engine) == [false, false, false, false])
+
+            await runner.apply(configuration(following(edited, true)))
+            _ = rig.render()
+            #expect(try changedReadings(of: unit, in: rig.engine) == [true, true, true, true])
+            _ = rig.render()
+            #expect(try changedReadings(of: unit, in: rig.engine) == [false, false, false, false])
+        }
+    }
+
     @Test func anInsertEffectGetsItsOwnSwitch() async throws {
         try await withRunner { runner, rig in
             let onTheDefault = insert()

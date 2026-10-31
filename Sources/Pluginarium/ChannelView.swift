@@ -6,6 +6,8 @@ import SwiftUI
 /// capabilities, and its edits go through `AppModel.edit`.
 struct ChannelView: View {
     static let width: CGFloat = 188
+    /// Room for the Effects legend and part of a row.
+    private static let effectsFloor: CGFloat = 24
 
     let channel: Channel
     let index: Int
@@ -242,33 +244,35 @@ struct ChannelView: View {
     }
 
     /// Gets the height the rest of the channel leaves, so in a low window its rows scroll instead of
-    /// running into the meter.
+    /// running into the meter. The floor is low so that a warning cannot push Audio out off the window,
+    /// and the routing warning stays outside, where scrolling cannot hide it.
     private var effects: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 5) {
-                Legend("Effects")
-                ForEach(Array(channel.effects.enumerated()), id: \.offset) { _, row in
-                    EffectRow(channel: channel, row: row)
-                }
-                Button { model.beginAddEffect(channel: channel.id) } label: {
-                    Text("Add effect")
-                        .font(.panelText(12.5))
-                        .foregroundStyle(Color.muted)
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .overlay(Rectangle().strokeBorder(Color.line, style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                if case .routingUnavailable(let label) = status {
-                    warning("\(label) is not available on this device")
+        VStack(alignment: .leading, spacing: 5) {
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Legend("Effects")
+                    ForEach(Array(channel.effects.enumerated()), id: \.offset) { _, row in
+                        EffectRow(channel: channel, row: row)
+                    }
+                    Button { model.beginAddEffect(channel: channel.id) } label: {
+                        Text("Add effect")
+                            .font(.panelText(12.5))
+                            .foregroundStyle(Color.muted)
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .overlay(Rectangle().strokeBorder(Color.line, style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(minHeight: Self.effectsFloor, maxHeight: .infinity, alignment: .top)
+            if case .routingUnavailable(let label) = status {
+                warning("\(label) is not available on this device")
+            }
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .frame(minHeight: 96, alignment: .top)
     }
 
     private var audioOut: some View {

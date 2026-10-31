@@ -210,6 +210,21 @@ func transport(of unit: AudioUnit, in engine: OpaquePointer) throws -> Transport
     return state
 }
 
+/// `changed` from the legacy callback, then the current one, then both again. All four have to agree:
+/// reading must not use up what a second caller in the block needs.
+func changedReadings(of unit: AudioUnit, in engine: OpaquePointer) throws -> [Bool] {
+    let info = pr_host_callback_info(engine, unit)
+    let legacy = try #require(info.transportStateProc)
+    let current = try #require(info.transportStateProc2)
+    return (0..<2).flatMap { _ -> [Bool] in
+        var viaLegacy: DarwinBoolean = false
+        var viaCurrent: DarwinBoolean = false
+        #expect(legacy(info.hostUserData, nil, &viaLegacy, nil, nil, nil, nil) == noErr)
+        #expect(current(info.hostUserData, nil, nil, &viaCurrent, nil, nil, nil, nil) == noErr)
+        return [viaLegacy.boolValue, viaCurrent.boolValue]
+    }
+}
+
 struct EngineHandle: @unchecked Sendable {
     let engine: OpaquePointer
 }

@@ -99,17 +99,20 @@ void pr_engine_read_meters(PREngine *engine, uint32_t strip, float *left, float 
 /// Smoothed ratio of render time to block duration.
 double pr_engine_load(PREngine *engine);
 
-/// Installs beat, tempo and transport callbacks reading the engine's transport, and gives the unit
-/// its record. The unit does not follow the transport until pr_engine_set_follows_transport says
-/// so, and calling this again turns that off: a disposed unit's address can come back as a new unit.
+/// Control thread only. Installs beat, tempo and transport callbacks reading the engine's transport,
+/// and gives the unit its record. The unit does not follow the transport until
+/// pr_engine_set_follows_transport says so, and calling this again turns that off and drops a flip
+/// not yet reported: a disposed unit's address can come back as a new unit.
 OSStatus pr_install_host_callbacks(AudioUnit unit, PREngine *engine);
 
-/// Whether the transport reaches the unit. Off, the unit reads the tempo and a transport stopped at
-/// beat 0. The next callback takes the change. Ignored for a unit that has no host callbacks.
+/// Control thread only. Whether the transport reaches the unit. Off, the unit reads the tempo and a
+/// transport stopped at beat 0. The next callback takes the value. A change of value reads as a
+/// transport change for the whole of the next block, and setting the value it has does nothing.
+/// Ignored for a unit that has no host callbacks.
 void pr_engine_set_follows_transport(PREngine *engine, AudioUnit unit, bool follows);
 
-/// The callbacks pr_install_host_callbacks gave the unit, all NULL if it gave it none. The property
-/// itself cannot be read back.
+/// Control thread only. The callbacks pr_install_host_callbacks gave the unit, all NULL if it gave it
+/// none. The property itself cannot be read back.
 HostCallbackInfo pr_host_callback_info(PREngine *engine, AudioUnit unit);
 
 /// Gives the unit its input record and sets the render callback on every input bus. Call it

@@ -81,8 +81,8 @@ A channel shows, top to bottom:
 1. Position in the stack and a remove control.
 2. Inputs, depending on the plugin (see Channels follow the plugin).
 3. Plugin name and preset selector.
-4. Button that opens and closes the plugin window.
-5. Effect slots. Effects stacked vertically run in series. Effects side by side in one row run in parallel, joined by split and merge lines. Up to 3 effects share a row. Clicking an effect opens a menu: open or close plugin, presets, sidechain input if the plugin has one, add parallel effect, move to series, remove.
+4. Button that opens and closes the plugin window, and under it the Follow Start/Stop key with its LED (see Tempo).
+5. Effect slots. Effects stacked vertically run in series. Effects side by side in one row run in parallel, joined by split and merge lines. Up to 3 effects share a row. Clicking an effect opens a menu: open or close plugin, presets, sidechain input if the plugin has one, Follow Start/Stop on or off, add parallel effect, move to series, remove.
 6. Level meter and audio output.
 
 ### Add dialog

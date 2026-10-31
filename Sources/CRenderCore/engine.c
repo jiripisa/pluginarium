@@ -27,6 +27,7 @@ PREngine *pr_engine_create(uint32_t maxFrames, double sampleRate) {
     engine->maxFrames = maxFrames;
     atomic_init(&engine->sampleRate, sampleRate);
     engine->secondsPerTick = (double)timebase.numer / (double)timebase.denom / 1e9;
+    atomic_init(&engine->block, 1);
     atomic_init(&engine->tempo, 120.0);
     return engine;
 }
@@ -102,6 +103,7 @@ void pr_engine_rewind_transport(PREngine *engine) {
 }
 
 void pr_transport_begin_block(PREngine *engine) {
+    atomic_fetch_add(&engine->block, 1);
     // Acquire, so that a block that sees a start playing also sees the rewind called before it.
     bool playing = atomic_load_explicit(&engine->playing, memory_order_acquire);
     bool rewind = atomic_exchange_explicit(&engine->rewindRequested, false, memory_order_acquire);
