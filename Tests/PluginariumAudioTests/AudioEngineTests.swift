@@ -7,9 +7,11 @@ import Testing
 @testable import PluginariumAudio
 
 // Hardware safety: a test never writes a device setting and never makes a sound. Only
-// `deviceLossAndReturn` starts a real device. It takes the default output's current sample rate and
-// buffer size, needs a device without inputs, and keeps the graph empty. Every other test runs on
-// `FakeStream`, and a device with inputs appears only with the microphone seams replaced.
+// `deviceLossAndReturn` starts a real device. It names no device, so the engine follows the default
+// output and requests nothing, refuses to open a stream that does request something, needs a device
+// without inputs, and keeps the graph empty. A test must never start a real device by name: that path
+// writes to it when its settings have moved. Every other test that opens a stream uses `FakeStream`,
+// and a device with inputs appears only with the microphone seams replaced.
 
 private let stereoOut = ["Left", "Right"]
 private let renderCoreLimit = 4096
@@ -1107,15 +1109,18 @@ struct AudioEngineTests {
             try Test.cancel("\(output.name) has inputs; starting it would enable the input element and ask for the microphone")
         }
         let before = try #require(DeviceCatalog.currentSettings(of: output))
-        guard before.bufferFrames <= AudioEngine.maxFrames else {
-            try Test.cancel("\(output.name) has \(before.bufferFrames) frame buffers, above what the engine takes")
-        }
 
         var list = [output]
         let engine = AudioEngine(devices: { list })
-        let current = settings(for: output, sampleRate: before.sampleRate, bufferFrames: Int(before.bufferFrames))
+        // No fault in the engine may reach the device: a stream that asks for settings never opens.
+        let open = engine.seams.open
+        engine.seams.open = { request, renderEngine in
+            #expect(request.settings == nil)
+            guard request.settings == nil else { throw StartFailed() }
+            return try open(request, renderEngine)
+        }
         do {
-            try engine.start(settings: current)
+            try engine.start(settings: settings(for: nil))
         } catch {
             try Test.cancel("\(output.name) has no way to start here: \(error)")
         }
@@ -1138,15 +1143,6 @@ struct AudioEngineTests {
 
         engine.stop()
         #expect(engine.state == .stopped)
-
-        // Following the default output, still with its current settings. Nothing is requested.
-        let following = settings(for: nil, sampleRate: before.sampleRate, bufferFrames: Int(before.bufferFrames))
-        try engine.start(settings: following)
-        #expect(engine.state == .running(output))
-        #expect(engine.runningSampleRate == before.sampleRate)
-        #expect(engine.runningBufferFrames == Int(before.bufferFrames))
-        engine.stop()
-
         #expect(DeviceCatalog.currentSettings(of: output) == before)
     }
 }
