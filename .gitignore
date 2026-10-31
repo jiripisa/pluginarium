@@ -1,0 +1,16 @@
+# Build artifacts (SPM + bundle pipeline, build.sh)
+.build/
+build/
+.swiftpm/
+*.xcodeproj
+xcuserdata/
+DerivedData/
+.DS_Store
+__pycache__/
+
+# Claude Code per-user local settings and runtime files
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# Superpowers brainstorm/plan scratch
+.superpowers/
