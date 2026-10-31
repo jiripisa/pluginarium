@@ -1,3 +1,4 @@
+import AppKit
 import AudioToolbox
 import PluginariumCore
 import PluginariumTestUnits
@@ -61,5 +62,14 @@ struct HostingTests {
         #expect(fourCC("ab") == 0x6162_2020)
         let id = PluginID(type: "aumu", subtype: "ab", manufacturer: string(fourCC: 0x8AB0_FFE9))
         #expect(PluginID(id.componentDescription).manufacturer == id.manufacturer)
+    }
+
+    @Test("Asking Apple's delay for a view returns a view or nil without crashing")
+    @MainActor
+    func makeViewOnAppleDelay() async throws {
+        let plugin = try await HostedPlugin.load(PluginID(type: "aufx", subtype: "dely", manufacturer: "appl"))
+        try plugin.configure(sampleRate: 48_000, maxFrames: 4096)
+        let view = await plugin.makeView()
+        if let view { #expect(view.frame.width >= 0) }
     }
 }
