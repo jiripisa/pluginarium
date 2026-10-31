@@ -46,7 +46,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "pluginarium-probe",
-            dependencies: ["PluginariumAudio", "PluginariumTestUnits"],
+            dependencies: ["PluginariumAudio", "PluginariumTestUnits", "CRenderCore"],
             path: "Sources/pluginarium-probe"
         ),
         .executableTarget(

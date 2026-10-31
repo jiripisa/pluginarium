@@ -8,7 +8,8 @@
 // Real-time render core.
 //
 // Threads:
-// - pr_engine_render runs on the audio thread and never allocates, locks or blocks.
+// - pr_engine_render runs on the audio thread and never allocates, locks or blocks. So does the
+//   render callback of a PRDeviceLink, which calls it.
 // - pr_engine_push_midi takes one producer thread per slot.
 // - pr_engine_set_transport can be called from any thread.
 // - Everything else belongs to one control thread, the main thread in the app.
@@ -63,6 +64,10 @@ bool pr_engine_is_generation_taken(PREngine *engine, uint64_t generation);
 /// render, and false only after the device has fully stopped.
 void pr_engine_set_audio_running(PREngine *engine, bool running);
 
+/// The rate the beat and load calculations use. Call only while audio is stopped. A rate that is
+/// not positive keeps the last one.
+void pr_engine_set_sample_rate(PREngine *engine, double sampleRate);
+
 /// Frees graphs the render thread has finished with.
 void pr_engine_collect_garbage(PREngine *engine);
 
@@ -95,5 +100,29 @@ HostCallbackInfo pr_host_callback_info(PREngine *engine);
 /// before installing a graph with the unit. Safe to call again for the same unit. Bus 0 carries
 /// the main input, bus 1 the sidechain, and any further bus reads silence.
 OSStatus pr_install_input_callbacks(AudioUnit unit, PREngine *engine);
+
+/// Joins one AUHAL unit to the engine: the unit's render callback pulls the device's input, then
+/// renders the engine into the device's output.
+typedef struct PRDeviceLink PRDeviceLink;
+
+/// Allocates everything the callback uses, so call it while stopped. unit is only used when
+/// inChannels is above 0, and input frames beyond maxFrames in one block read as silence, as do
+/// frames the unit cannot deliver. Returns NULL when maxFrames or outChannels is 0, or allocation
+/// fails.
+PRDeviceLink *pr_device_link_create(PREngine *engine, AudioUnit unit, uint32_t maxFrames,
+                                    uint32_t inChannels, uint32_t outChannels);
+
+/// The callback to set on the unit's input scope, element 0.
+AURenderCallbackStruct pr_device_link_render_callback(PRDeviceLink *link);
+
+/// A callback that starts after this writes silence and leaves the engine alone.
+void pr_device_link_close(PRDeviceLink *link);
+
+/// True while no callback is running. Once the link is closed, true also means no callback will
+/// reach the engine again, whatever the unit does next.
+bool pr_device_link_is_idle(PRDeviceLink *link);
+
+/// Call only after the unit has been disposed.
+void pr_device_link_destroy(PRDeviceLink *link);
 
 #endif

@@ -25,7 +25,7 @@ PREngine *pr_engine_create(uint32_t maxFrames, double sampleRate) {
     mach_timebase_info_data_t timebase;
     mach_timebase_info(&timebase);
     engine->maxFrames = maxFrames;
-    engine->sampleRate = sampleRate;
+    atomic_init(&engine->sampleRate, sampleRate);
     engine->secondsPerTick = (double)timebase.numer / (double)timebase.denom / 1e9;
     atomic_init(&engine->tempo, 120.0);
     return engine;
@@ -47,6 +47,15 @@ void pr_engine_destroy(PREngine *engine) {
 
 void pr_engine_set_audio_running(PREngine *engine, bool running) {
     atomic_store_explicit(&engine->audioRunning, running, memory_order_release);
+}
+
+void pr_engine_set_sample_rate(PREngine *engine, double sampleRate) {
+    if (!(sampleRate > 0)) return;
+    atomic_store_explicit(&engine->sampleRate, sampleRate, memory_order_relaxed);
+}
+
+double pr_sample_rate(const PREngine *engine) {
+    return atomic_load_explicit(&engine->sampleRate, memory_order_relaxed);
 }
 
 // MARK: - MIDI
@@ -94,7 +103,7 @@ void pr_transport_advance(PREngine *engine, uint32_t frames) {
     double tempo = atomic_load_explicit(&engine->tempo, memory_order_relaxed);
     double beat = atomic_load_explicit(&engine->beat, memory_order_relaxed);
     double sample = atomic_load_explicit(&engine->timelineSample, memory_order_relaxed);
-    atomic_store_explicit(&engine->beat, beat + frames * tempo / (60.0 * engine->sampleRate), memory_order_relaxed);
+    atomic_store_explicit(&engine->beat, beat + frames * tempo / (60.0 * pr_sample_rate(engine)), memory_order_relaxed);
     atomic_store_explicit(&engine->timelineSample, sample + frames, memory_order_relaxed);
 }
 
@@ -112,7 +121,7 @@ void pr_engine_read_meters(PREngine *engine, uint32_t strip, float *left, float 
 }
 
 void pr_load_update(PREngine *engine, uint64_t ticks, uint32_t frames) {
-    double ratio = (double)ticks * engine->secondsPerTick * engine->sampleRate / frames;
+    double ratio = (double)ticks * engine->secondsPerTick * pr_sample_rate(engine) / frames;
     double load = atomic_load_explicit(&engine->load, memory_order_relaxed);
     atomic_store_explicit(&engine->load, load + PR_LOAD_SMOOTHING * (ratio - load), memory_order_relaxed);
 }

@@ -74,7 +74,7 @@ typedef struct {
 
 struct PREngine {
     uint32_t maxFrames;
-    double sampleRate;
+    _Atomic(double) sampleRate; // read by host callbacks, which units can call from any thread
     double secondsPerTick;
 
     _Atomic(PRGraph *) pending; // newest graph no render has taken yet
@@ -108,6 +108,9 @@ void *pr_alloc(size_t size);
 
 /// Pushes onto the retired stack. Lock-free: called from the render and control threads.
 void pr_graph_retire(PREngine *engine, PRGraph *graph);
+
+/// Safe on any thread.
+double pr_sample_rate(const PREngine *engine);
 
 // Render thread helpers, in engine.c.
 void pr_midi_drain(PREngine *engine, const PRGraph *graph);

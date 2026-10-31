@@ -28,7 +28,7 @@ static OSStatus musical_time_location(void *userData, UInt32 *samplesToNextBeat,
     double beat = current_beat(engine);
     if (samplesToNextBeat != NULL) {
         double untilNext = ceil(beat) - beat;
-        *samplesToNextBeat = (UInt32)(untilNext * 60.0 / current_tempo(engine) * engine->sampleRate);
+        *samplesToNextBeat = (UInt32)(untilNext * 60.0 / current_tempo(engine) * pr_sample_rate(engine));
     }
     if (numerator != NULL) *numerator = PR_BEATS_PER_BAR;
     if (denominator != NULL) *denominator = 4;
