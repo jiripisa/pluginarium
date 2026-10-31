@@ -72,4 +72,13 @@ struct HostingTests {
         let view = await plugin.makeView()
         if let view { #expect(view.frame.width >= 0) }
     }
+
+    @Test("A view request that is never answered gives up at the timeout")
+    @MainActor
+    func viewRequestTimesOut() async throws {
+        let plugin = try await HostedPlugin.load(PluginID(type: "aufx", subtype: "dely", manufacturer: "appl"))
+        try plugin.configure(sampleRate: 48_000, maxFrames: 4096)
+        let view = await plugin.requestedControllerView(timeout: .milliseconds(200))
+        #expect(view == nil)
+    }
 }

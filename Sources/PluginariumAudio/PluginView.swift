@@ -10,7 +10,7 @@ extension HostedPlugin {
     @MainActor
     public func makeView() async -> NSView? {
         if let view = cocoaFactoryView() { return view }
-        return await requestedControllerView()
+        return await requestedControllerView(timeout: .seconds(5))
     }
 
     // MARK: - Private
@@ -41,16 +41,23 @@ extension HostedPlugin {
         typealias Factory = @convention(c) (AnyObject, Selector, AudioUnit, NSSize) -> Unmanaged<NSView>?
         let makeView = unsafeBitCast(method_getImplementation(method), to: Factory.self)
         let factory = factoryClass.init()
-        return makeView(factory, selector, audioUnit, NSSize(width: 800, height: 600))?.takeUnretainedValue()
+        let view = makeView(factory, selector, audioUnit, NSSize(width: 800, height: 600))?.takeUnretainedValue()
+        // The view does not own its factory; keep it for as long as the plugin lives.
+        if view != nil { viewOwner = factory }
+        return view
     }
 
     /// Version 3 units hand out an `AUViewController` through the `RequestViewController` property.
+    /// Gives up after `timeout`, since a unit may accept the request and never answer.
     @MainActor
-    private func requestedControllerView() async -> NSView? {
+    func requestedControllerView(timeout: Duration) async -> NSView? {
         let unit = audioUnit
+        let request = ViewRequest()
         let controller: NSViewController? = await withCheckedContinuation { continuation in
-            let completion: @convention(block) (AnyObject?) -> Void = { controller in
-                continuation.resume(returning: controller as? NSViewController)
+            request.install(continuation)
+            // `@Sendable` keeps the block nonisolated: the unit may call it on any thread.
+            let completion: @convention(block) @Sendable (AnyObject?) -> Void = { controller in
+                request.finish(controller as? NSViewController)
             }
             var block = completion as AnyObject
             let status = withUnsafeMutablePointer(to: &block) {
@@ -59,8 +66,37 @@ extension HostedPlugin {
                     $0, UInt32(MemoryLayout<AnyObject>.size)
                 )
             }
-            if status != noErr { continuation.resume(returning: nil) }
+            if status != noErr {
+                request.finish(nil)
+            } else {
+                Task {
+                    try? await Task.sleep(for: timeout)
+                    request.finish(nil)
+                }
+            }
         }
-        return controller?.view
+        guard let controller else { return nil }
+        // The view does not own its controller; keep it for as long as the plugin lives.
+        viewOwner = controller
+        return controller.view
+    }
+}
+
+/// Resumes its continuation exactly once, from whichever of the completion block, the failure
+/// path or the timeout comes first.
+private final class ViewRequest: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<NSViewController?, Never>?
+
+    func install(_ continuation: CheckedContinuation<NSViewController?, Never>) {
+        lock.withLock { self.continuation = continuation }
+    }
+
+    func finish(_ controller: NSViewController?) {
+        let pending = lock.withLock { () -> CheckedContinuation<NSViewController?, Never>? in
+            defer { continuation = nil }
+            return continuation
+        }
+        pending?.resume(returning: controller)
     }
 }
