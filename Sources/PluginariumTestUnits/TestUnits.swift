@@ -22,18 +22,18 @@ private let registration: Void = {
     register(TestBroken.self, type: code("aufx"), subtype: "PlBd", name: "Test Broken")
     register(TestTempo.self, type: code("aumu"), subtype: "PlTp", name: "Test Tempo")
     register(TestNullPull.self, type: code("aufx"), subtype: "PlNl", name: "Test Null Pull")
+    register(TestMono.self, type: code("aufx"), subtype: "PlMo", name: "Test Mono")
 }()
 
 private func code(_ string: String) -> OSType {
     string.utf8.reduce(OSType(0)) { ($0 << 8) | OSType($1) }
 }
 
-private let defaultFormat = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
-
 /// Shared base: bus layout, scratch input buffers and a pull helper. Subclasses supply the DSP.
 private class TestUnit: AUAudioUnit {
 
     class var inputBusNames: [String] { [] }
+    class var busChannels: AVAudioChannelCount { 2 }
 
     private var inputs: [AUAudioUnitBus] = []
     private var outputs: [AUAudioUnitBus] = []
@@ -44,6 +44,7 @@ private class TestUnit: AUAudioUnit {
 
     override init(componentDescription: AudioComponentDescription, options: AudioComponentInstantiationOptions = []) throws {
         try super.init(componentDescription: componentDescription, options: options)
+        let defaultFormat = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: Self.busChannels)!
         for name in Self.inputBusNames {
             let bus = try AUAudioUnitBus(format: defaultFormat)
             bus.name = name
@@ -216,6 +217,24 @@ private final class TestNullPull: TestUnit {
                 guard let data = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
                 for frame in 0..<Int(frames) { data[frame] = 9 }
             }
+            return noErr
+        }
+    }
+}
+
+/// aufx/PlMo/Plug: input × 0.5, and refuses any format that is not mono.
+private final class TestMono: TestUnit {
+    override class var inputBusNames: [String] { ["Input"] }
+    override class var busChannels: AVAudioChannelCount { 1 }
+
+    override func shouldChange(to format: AVAudioFormat, for bus: AUAudioUnitBus) -> Bool {
+        format.channelCount == 1
+    }
+
+    override var internalRenderBlock: AUInternalRenderBlock {
+        return { [unowned self] flags, timestamp, frames, _, output, _, pullBlock in
+            let main = pull(scratch, bus: 0, frames: frames, flags: flags, timestamp: timestamp, pullBlock: pullBlock)
+            mix(out: UnsafeMutableAudioBufferListPointer(output), frames: Int(frames), main: main, mainGain: 0.5, side: nil, sideGain: 0)
             return noErr
         }
     }

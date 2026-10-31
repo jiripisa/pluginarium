@@ -9,12 +9,29 @@ public enum HostedPluginError: Error {
     case unknownPreset(String)
 }
 
+extension HostedPluginError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .notFound(let id):
+            "The plugin \(id.type)/\(id.subtype)/\(id.manufacturer) is not installed on this Mac."
+        case .osStatus(let status, let operation):
+            "\(operation) failed with error \(status)."
+        case .invalidState:
+            "The saved plugin state cannot be read."
+        case .unknownPreset(let name):
+            "The plugin has no preset named \(name)."
+        }
+    }
+}
+
 /// An instantiated Audio Unit. Holds the raw `AudioUnit` because the C render core
 /// calls `AudioUnitRender` on it directly.
 public final class HostedPlugin: @unchecked Sendable {
 
     public let id: PluginID
     public let audioUnit: AudioUnit
+    /// Channels per bus: 2, or 1 when `configure` found the unit refuses stereo.
+    public private(set) var channelCount: UInt32 = 2
     private var isInitialized = false
     /// Keeps the owner of the plugin's view (view controller or Cocoa factory) alive, since a view does not own it.
     var viewOwner: AnyObject?
@@ -74,8 +91,11 @@ public final class HostedPlugin: @unchecked Sendable {
             AudioUnitSetProperty(audioUnit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &frames, UInt32(MemoryLayout<UInt32>.size)),
             "MaximumFramesPerSlice"
         )
-        if (try? applyFormat(channels: 2, sampleRate: sampleRate)) == nil {
+        if (try? applyFormat(channels: 2, sampleRate: sampleRate)) != nil {
+            channelCount = 2
+        } else {
             try applyFormat(channels: 1, sampleRate: sampleRate)
+            channelCount = 1
         }
         try check(AudioUnitInitialize(audioUnit), "AudioUnitInitialize")
         isInitialized = true

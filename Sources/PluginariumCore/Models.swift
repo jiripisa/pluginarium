@@ -79,6 +79,14 @@ public struct PluginInfo: Codable, Identifiable, Sendable {
 public enum AudioChannels: Codable, Hashable, Sendable {
     case mono(Int)
     case stereo(left: Int, right: Int)
+
+    /// One-based, the way a device names its channels: "In 1", "Out 15–16".
+    public func label(prefix: String) -> String {
+        switch self {
+        case .mono(let channel): "\(prefix) \(channel + 1)"
+        case .stereo(let left, let right): "\(prefix) \(left + 1)–\(right + 1)"
+        }
+    }
 }
 
 /// Which MIDI channel of a source is used: all of them, or one from 1 to 16.

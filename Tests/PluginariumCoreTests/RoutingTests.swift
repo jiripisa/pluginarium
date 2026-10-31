@@ -60,3 +60,9 @@ private func twoInstrumentRows() -> AppSettings {
     #expect(!settings.instrumentPositions.isEmpty)
     #expect(!settings.effectPositions.isEmpty)
 }
+
+@Test func channelLabelsAreOneBased() {
+    #expect(AudioChannels.stereo(left: 14, right: 15).label(prefix: "Out") == "Out 15–16")
+    #expect(AudioChannels.stereo(left: 8, right: 9).label(prefix: "In") == "In 9–10")
+    #expect(AudioChannels.mono(0).label(prefix: "In") == "In 1")
+}
