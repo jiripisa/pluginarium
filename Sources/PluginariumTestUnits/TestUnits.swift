@@ -1,16 +1,34 @@
+// Debug builds only, so no test unit is in a release, whatever links this target.
+#if DEBUG
+
 import AudioToolbox
 import AVFoundation
 import Synchronization
 
-/// Registers the in-process test Audio Units. Safe to call any number of times, from any thread.
+/// Registers every test Audio Unit, for tests. Safe to call any number of times, from any thread.
+///
+/// Some of these write test signals, not audio: `PlTp` writes full-scale DC. Those must never reach a
+/// device, so the app calls `registerSafeTestUnits` instead, and nothing else may call this.
 public func registerTestUnits() {
     _ = registration
+}
+
+/// Registers only the units in `safeTestUnits`, for the app. Safe to call any number of times, from
+/// any thread. A process calls this or `registerTestUnits`, never both.
+public func registerSafeTestUnits() {
+    _ = safeRegistration
+}
+
+/// The units the app can load. Each one scales its input, or fails to start, so with nothing coming
+/// in it is silent. A unit goes here only if that holds, whatever notes it gets.
+public var safeTestUnits: [(type: String, subtype: String)] {
+    safeEntries.map { ($0.type, $0.subtype) }
 }
 
 /// Registers an effect that works like Test Gain under `subtype` (type aufx, manufacturer Plug). A test
 /// that follows a unit's life takes a subtype of its own, so no other test's units show up in it.
 public func registerFollowedUnit(subtype: String) {
-    register(TestGain.self, type: code("aufx"), subtype: subtype, name: "Test \(subtype)")
+    register(TestGain.self, type: "aufx", subtype: subtype, name: "Test \(subtype)")
 }
 
 /// A step in the life of a test unit that a host has to keep on the main thread.
@@ -38,23 +56,49 @@ private func record(_ step: UnitLifeStep, subtype: OSType) {
     lifeEvents.withLock { $0[subtype, default: []].append(event) }
 }
 
-private func register(_ unitClass: AUAudioUnit.Type, type: OSType, subtype: String, name: String) {
+private func register(_ unitClass: AUAudioUnit.Type, type: String, subtype: String, name: String) {
     let description = AudioComponentDescription(
-        componentType: type, componentSubType: code(subtype), componentManufacturer: code("Plug"),
+        componentType: code(type), componentSubType: code(subtype), componentManufacturer: code("Plug"),
         componentFlags: 0, componentFlagsMask: 0
     )
     AUAudioUnit.registerSubclass(unitClass, as: description, name: "Pluginarium: \(name)", version: 1)
 }
 
+private struct Entry {
+    var unitClass: AUAudioUnit.Type
+    var type: String
+    var subtype: String
+    var name: String
+}
+
+private var safeEntries: [Entry] {
+    [
+        Entry(unitClass: TestGain.self, type: "aufx", subtype: "PlFx", name: "Test Gain"),
+        Entry(unitClass: TestSidechain.self, type: "aufx", subtype: "PlSc", name: "Test Sidechain"),
+        Entry(unitClass: TestVoice.self, type: "aumf", subtype: "PlVo", name: "Test Voice"),
+        Entry(unitClass: TestBroken.self, type: "aufx", subtype: "PlBd", name: "Test Broken"),
+        Entry(unitClass: TestMono.self, type: "aufx", subtype: "PlMo", name: "Test Mono"),
+    ]
+}
+
+/// Constant levels and marker values that tests measure. On a device these are DC, not sound.
+private var signalEntries: [Entry] {
+    [
+        Entry(unitClass: TestInstrument.self, type: "aumu", subtype: "PlIn", name: "Test Instrument"),
+        Entry(unitClass: TestTempo.self, type: "aumu", subtype: "PlTp", name: "Test Tempo"),
+        Entry(unitClass: TestNullPull.self, type: "aufx", subtype: "PlNl", name: "Test Null Pull"),
+    ]
+}
+
+private func register(_ entries: [Entry]) {
+    for entry in entries { register(entry.unitClass, type: entry.type, subtype: entry.subtype, name: entry.name) }
+}
+
+private let safeRegistration: Void = register(safeEntries)
+
 private let registration: Void = {
-    register(TestInstrument.self, type: code("aumu"), subtype: "PlIn", name: "Test Instrument")
-    register(TestGain.self, type: code("aufx"), subtype: "PlFx", name: "Test Gain")
-    register(TestSidechain.self, type: code("aufx"), subtype: "PlSc", name: "Test Sidechain")
-    register(TestVoice.self, type: code("aumf"), subtype: "PlVo", name: "Test Voice")
-    register(TestBroken.self, type: code("aufx"), subtype: "PlBd", name: "Test Broken")
-    register(TestTempo.self, type: code("aumu"), subtype: "PlTp", name: "Test Tempo")
-    register(TestNullPull.self, type: code("aufx"), subtype: "PlNl", name: "Test Null Pull")
-    register(TestMono.self, type: code("aufx"), subtype: "PlMo", name: "Test Mono")
+    _ = safeRegistration
+    register(signalEntries)
 }()
 
 private func code(_ string: String) -> OSType {
@@ -324,3 +368,5 @@ private final class TestBroken: TestUnit {
         return { _, _, _, _, _, _, _ in noErr }
     }
 }
+
+#endif

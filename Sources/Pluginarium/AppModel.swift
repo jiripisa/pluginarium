@@ -2,7 +2,9 @@ import Foundation
 import Observation
 import PluginariumAudio
 import PluginariumCore
+#if DEBUG
 import PluginariumTestUnits
+#endif
 import os
 
 private let logger = Logger(subsystem: "io.jp4.pluginarium", category: "app")
@@ -89,7 +91,9 @@ final class AppModel {
     @ObservationIgnored private var deviceNames: [String: String] = [:]
 
     init(base: URL = AppPaths.base()) {
-        if ProcessInfo.processInfo.environment["PLUGINARIUM_TEST_UNITS"] == "1" { registerTestUnits() }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["PLUGINARIUM_TEST_UNITS"] == "1" { registerSafeTestUnits() }
+        #endif
         configurationStore = ConfigurationStore(directory: base.appending(path: "configurations", directoryHint: .isDirectory))
         cache = CapabilityCache(file: base.appending(path: "capabilities.json"))
         presetStore = PresetStore(directory: base.appending(path: "presets", directoryHint: .isDirectory))

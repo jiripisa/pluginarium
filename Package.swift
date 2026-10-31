@@ -35,7 +35,7 @@ let package = Package(
             dependencies: ["PluginariumCore", "CRenderCore"],
             path: "Sources/PluginariumAudio"
         ),
-        // Test Audio Units for tests and the probe.
+        // Test Audio Units for tests, and the safe ones for the debug app. Empty in a release.
         .target(
             name: "PluginariumTestUnits",
             path: "Sources/PluginariumTestUnits",
