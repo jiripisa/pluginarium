@@ -10,13 +10,16 @@ private let settingBound = Duration.seconds(2)
 
 struct StreamRequest: Equatable {
     var device: AudioDevice
-    var settings: DeviceSettings
+    /// What to write where the device differs. Nil leaves the device at what it runs at.
+    var settings: DeviceSettings?
     /// False leaves the input element off, so the graph's input channels read as silence.
     var usesInput: Bool
 }
 
 /// A device on its way to running the render core, or running it.
 protocol DeviceStream: AnyObject, Sendable {
+    /// What the device runs at, as it reports it, which is what the render core has to run at.
+    var settings: DeviceSettings { get }
     func start() throws
     /// True once no render callback can reach the engine again. Bounded, and false when the bound
     /// is hit; calling it again takes up the wait.
@@ -42,19 +45,21 @@ final class HALStream: DeviceStream, @unchecked Sendable {
         let unit: AudioUnit
     }
 
+    let settings: DeviceSettings
     private let unit: AudioUnit
     private let link: OpaquePointer
     private let stopCall = DispatchGroup()
     private var stopRequested = false
     private var isReleased = false
 
-    private init(unit: AudioUnit, link: OpaquePointer) {
+    private init(settings: DeviceSettings, unit: AudioUnit, link: OpaquePointer) {
+        self.settings = settings
         self.unit = unit
         self.link = link
     }
 
-    /// Nothing is written to the device until the unit is set up, so a request that cannot run
-    /// leaves the device as it was.
+    /// The client formats take the rate the device reports after the write, and not the requested
+    /// one: AUHAL has no rate conversion on input, so that format has to match the device.
     static func open(_ request: StreamRequest, engine: OpaquePointer) throws -> HALStream {
         guard let device = DeviceCatalog.object(uid: request.device.id),
             let current = DeviceCatalog.currentSettings(of: device)
@@ -66,7 +71,12 @@ final class HALStream: DeviceStream, @unchecked Sendable {
         let unit = try makeUnit()
         var link: OpaquePointer?
         do {
-            try setUp(unit, device: device, inputs: inputs, outputs: outputs, sampleRate: request.settings.sampleRate)
+            try attach(unit, to: device, inputs: inputs)
+            try write(settingsToWrite(current: current, requested: request.settings), to: device)
+            guard let actual = DeviceCatalog.currentSettings(of: device) else {
+                throw AudioEngineError.deviceUnavailable(request.device.name)
+            }
+            try setFormats(unit, inputs: inputs, outputs: outputs, sampleRate: actual.sampleRate)
             guard let created = pr_device_link_create(engine, unit, AudioEngine.maxFrames, inputs, outputs) else {
                 throw AudioEngineError.osStatus(kAudio_MemFullError, "Device buffers")
             }
@@ -76,9 +86,8 @@ final class HALStream: DeviceStream, @unchecked Sendable {
                 AudioUnitSetProperty(unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, outputElement, &callback, UInt32(MemoryLayout<AURenderCallbackStruct>.size)),
                 "SetRenderCallback"
             )
-            try write(settingsToWrite(current: current, requested: request.settings), to: device)
             try check(AudioUnitInitialize(unit), "AudioUnitInitialize")
-            return HALStream(unit: unit, link: created)
+            return HALStream(settings: actual, unit: unit, link: created)
         } catch {
             AudioComponentInstanceDispose(unit)
             if let link { pr_device_link_destroy(link) }
@@ -139,11 +148,14 @@ final class HALStream: DeviceStream, @unchecked Sendable {
         return unit
     }
 
-    private static func setUp(_ unit: AudioUnit, device: AudioObjectID, inputs: UInt32, outputs: UInt32, sampleRate: Double) throws {
+    private static func attach(_ unit: AudioUnit, to device: AudioObjectID, inputs: UInt32) throws {
         // These two have to come before the device is set.
         try setProperty(unit, kAudioOutputUnitProperty_EnableIO, scope: kAudioUnitScope_Output, element: outputElement, UInt32(1))
         try setProperty(unit, kAudioOutputUnitProperty_EnableIO, scope: kAudioUnitScope_Input, element: inputElement, UInt32(inputs > 0 ? 1 : 0))
         try setProperty(unit, kAudioOutputUnitProperty_CurrentDevice, scope: kAudioUnitScope_Global, element: outputElement, device)
+    }
+
+    private static func setFormats(_ unit: AudioUnit, inputs: UInt32, outputs: UInt32, sampleRate: Double) throws {
         try setProperty(unit, kAudioUnitProperty_MaximumFramesPerSlice, scope: kAudioUnitScope_Global, element: outputElement, AudioEngine.maxFrames)
         try setProperty(unit, kAudioUnitProperty_StreamFormat, scope: kAudioUnitScope_Input, element: outputElement, clientFormat(channels: outputs, sampleRate: sampleRate))
         if inputs > 0 {

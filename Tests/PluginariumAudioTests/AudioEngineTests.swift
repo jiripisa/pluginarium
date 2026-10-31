@@ -31,6 +31,7 @@ private struct StartFailed: Error {}
 /// Stands in for the AUHAL unit, so the engine's obligations can be checked without a device.
 private final class FakeStream: DeviceStream, @unchecked Sendable {
     let request: StreamRequest
+    var settings: DeviceSettings
     var startError: (any Error)?
     var stopsInTime = true
     var onStart: () -> Void = {}
@@ -38,8 +39,9 @@ private final class FakeStream: DeviceStream, @unchecked Sendable {
     private(set) var startCalls = 0
     private(set) var stopCalls = 0
 
-    init(request: StreamRequest) {
+    init(request: StreamRequest, settings: DeviceSettings) {
         self.request = request
+        self.settings = settings
     }
 
     func start() throws {
@@ -62,6 +64,8 @@ private final class Bench {
     var opened: [FakeStream] = []
     var prepare: (FakeStream) -> Void = { _ in }
     var defaultOutput: AudioDevice?
+    /// What a device runs at when nothing is asked of it.
+    var deviceSettings = DeviceSettings(sampleRate: 96_000, bufferFrames: 512)
     var microphone = AVAuthorizationStatus.authorized
     var microphoneRequests = 0
     var answerMicrophone: (@Sendable (Bool) -> Void)?
@@ -72,7 +76,7 @@ private final class Bench {
         engine = AudioEngine(devices: { [unowned self] in self.devices })
         engine.seams.defaultOutput = { [unowned self] in self.defaultOutput }
         engine.seams.open = { [unowned self] request, _ in
-            let stream = FakeStream(request: request)
+            let stream = FakeStream(request: request, settings: request.settings ?? self.deviceSettings)
             self.prepare(stream)
             self.opened.append(stream)
             return stream
@@ -232,6 +236,22 @@ struct AudioEngineTests {
         #expect(
             settingsToWrite(current: current, requested: DeviceSettings(sampleRate: 96_000, bufferFrames: 64))
                 == DeviceSettingsChange(sampleRate: 96_000, bufferFrames: 64)
+        )
+    }
+
+    @Test("Nothing is written when no settings were requested, whatever the device runs at")
+    func noRequestWritesNothing() {
+        let current = DeviceSettings(sampleRate: 96_000, bufferFrames: 512)
+        #expect(settingsToWrite(current: current, requested: nil) == DeviceSettingsChange())
+    }
+
+    @Test("Only a device the owner picked is given settings")
+    func onlyAPickedDeviceIsGivenSettings() {
+        #expect(chosenSettings(in: .defaults) == nil)
+        #expect(chosenSettings(in: settings(for: nil, sampleRate: 44_100, bufferFrames: 256)) == nil)
+        #expect(
+            chosenSettings(in: settings(for: device("a"), sampleRate: 44_100, bufferFrames: 256))
+                == DeviceSettings(sampleRate: 44_100, bufferFrames: 256)
         )
     }
 
@@ -555,6 +575,165 @@ struct AudioEngineTests {
 
         #expect(bench.opened[0].stopCalls == 1)
         #expect(bench.engine.state == .running(device("b")))
+    }
+
+    // MARK: - Following the default output
+
+    @Test("A followed default output keeps what it runs at, for start")
+    func followedDefaultKeepsItsSettings() throws {
+        let bench = Bench()
+        bench.defaultOutput = bench.devices[0]
+        try bench.engine.start(settings: settings(for: nil, sampleRate: 44_100, bufferFrames: 256))
+
+        #expect(bench.opened[0].request.settings == nil)
+        #expect(bench.engine.runningSampleRate == 96_000)
+        #expect(bench.engine.runningBufferFrames == 512)
+    }
+
+    @Test("Plain default settings ask nothing of the default output")
+    func defaultSettingsAskNothing() throws {
+        let bench = Bench()
+        bench.defaultOutput = bench.devices[0]
+        try bench.engine.start(settings: .defaults)
+        #expect(bench.opened[0].request.settings == nil)
+    }
+
+    @Test("Headphones leaving hand over to the interface without touching its settings")
+    func aPlugEventWritesNothing() throws {
+        let headphones = device("headphones")
+        let interface = device("interface")
+        let bench = Bench(devices: [headphones, interface])
+        bench.defaultOutput = headphones
+        bench.deviceSettings = DeviceSettings(sampleRate: 44_100, bufferFrames: 256)
+        try bench.engine.start(settings: settings(for: nil))
+
+        bench.devices = [interface]
+        bench.defaultOutput = interface
+        bench.deviceSettings = DeviceSettings(sampleRate: 96_000, bufferFrames: 64)
+        bench.engine.handleDeviceChange()
+
+        #expect(bench.engine.state == .running(interface))
+        #expect(bench.opened[1].request.settings == nil)
+        #expect(bench.engine.runningSampleRate == 96_000)
+        #expect(bench.engine.runningBufferFrames == 64)
+        #expect(abs(renderedBeat(bench.engine.renderEngine, frames: 960) - beats(frames: 960, at: 96_000)) < 1e-9)
+    }
+
+    @Test("Settings a followed default would not use do not stop it")
+    func followedDefaultIgnoresTheValues() throws {
+        let bench = Bench()
+        bench.defaultOutput = bench.devices[0]
+        try bench.engine.start(settings: settings(for: nil, sampleRate: 0, bufferFrames: renderCoreLimit + 1))
+        #expect(bench.engine.state == .running(bench.devices[0]))
+    }
+
+    @Test("A followed default with too large a buffer is refused, not written")
+    func oversizedDefaultIsRefused() {
+        let bench = Bench()
+        bench.defaultOutput = bench.devices[0]
+        bench.deviceSettings = DeviceSettings(sampleRate: 48_000, bufferFrames: UInt32(renderCoreLimit) + 1)
+
+        #expect(throws: AudioEngineError.self) { try bench.engine.start(settings: settings(for: nil)) }
+
+        #expect(bench.opened[0].request.settings == nil)
+        #expect(bench.opened[0].startCalls == 0)
+        #expect(bench.opened[0].stopCalls == 1)
+        #expect(!bench.markedRunning)
+        #expect(bench.engine.state == .stopped)
+        #expect(bench.engine.runningSampleRate == nil)
+    }
+
+    @Test("The largest buffer on a followed default plays")
+    func largestBufferOnDefaultPlays() throws {
+        let bench = Bench()
+        bench.defaultOutput = bench.devices[0]
+        bench.deviceSettings = DeviceSettings(sampleRate: 48_000, bufferFrames: UInt32(renderCoreLimit))
+        try bench.engine.start(settings: settings(for: nil))
+        #expect(bench.engine.runningBufferFrames == renderCoreLimit)
+    }
+
+    @Test("A restart onto a default with too large a buffer reports it missing, and retries")
+    func oversizedDefaultOnRestart() throws {
+        let headphones = device("headphones")
+        let interface = device("interface")
+        let bench = Bench(devices: [headphones, interface])
+        bench.defaultOutput = headphones
+        try bench.engine.start(settings: settings(for: nil))
+
+        bench.devices = [interface]
+        bench.defaultOutput = interface
+        bench.deviceSettings = DeviceSettings(sampleRate: 48_000, bufferFrames: 8_192)
+        bench.engine.handleDeviceChange()
+        #expect(bench.engine.state == .deviceMissing("interface"))
+        #expect(!bench.markedRunning)
+        #expect(bench.opened[1].startCalls == 0)
+
+        bench.deviceSettings = DeviceSettings(sampleRate: 48_000, bufferFrames: 1_024)
+        bench.engine.handleDeviceChange()
+        #expect(bench.engine.state == .running(interface))
+    }
+
+    // MARK: - What is actually running
+
+    @Test("Running values are what the device reports, not what was asked")
+    func runningValuesComeFromTheDevice() throws {
+        let bench = Bench()
+        bench.prepare = { $0.settings = DeviceSettings(sampleRate: 44_100, bufferFrames: 130) }
+        try bench.engine.start(settings: settings(for: bench.devices[0], sampleRate: 48_000, bufferFrames: 128))
+        #expect(bench.engine.runningSampleRate == 44_100)
+        #expect(bench.engine.runningBufferFrames == 130)
+    }
+
+    @Test("The render core runs at the rate the device reports")
+    func renderCoreTakesTheReportedRate() throws {
+        let bench = Bench()
+        bench.prepare = { $0.settings = DeviceSettings(sampleRate: 44_100, bufferFrames: 128) }
+        try bench.engine.start(settings: settings(for: bench.devices[0], sampleRate: 48_000))
+        #expect(abs(renderedBeat(bench.engine.renderEngine, frames: 960) - beats(frames: 960, at: 44_100)) < 1e-9)
+    }
+
+    @Test("Running values are nil unless a device runs")
+    func runningValuesFollowTheState() throws {
+        let bench = Bench()
+        let wanted = bench.devices[0]
+        #expect(bench.engine.runningSampleRate == nil)
+        #expect(bench.engine.runningBufferFrames == nil)
+
+        try bench.engine.start(settings: settings(for: wanted))
+        #expect(bench.engine.runningSampleRate == 48_000)
+        #expect(bench.engine.runningBufferFrames == 128)
+
+        bench.devices = []
+        bench.engine.handleDeviceChange()
+        #expect(bench.engine.runningSampleRate == nil)
+        #expect(bench.engine.runningBufferFrames == nil)
+
+        bench.devices = [wanted]
+        bench.engine.handleDeviceChange()
+        #expect(bench.engine.runningSampleRate == 48_000)
+
+        bench.engine.stop()
+        #expect(bench.engine.runningSampleRate == nil)
+        #expect(bench.engine.runningBufferFrames == nil)
+    }
+
+    @Test("A stream that will not stop no longer counts as running")
+    func runningValuesClearOnTimeout() throws {
+        let bench = Bench()
+        bench.prepare = { $0.stopsInTime = false }
+        try bench.engine.start(settings: settings(for: bench.devices[0]))
+        bench.engine.stop()
+        #expect(bench.engine.runningSampleRate == nil)
+    }
+
+    @Test("onDeviceChange sees the running values of the new state")
+    func onDeviceChangeSeesRunningValues() throws {
+        let bench = Bench()
+        var seen: [Double?] = []
+        bench.engine.onDeviceChange = { seen.append(bench.engine.runningSampleRate) }
+        try bench.engine.start(settings: settings(for: bench.devices[0], sampleRate: 44_100))
+        bench.engine.stop()
+        #expect(seen == [44_100, nil])
     }
 
     @Test("A missing default output starts when the system has one again")
@@ -941,6 +1120,8 @@ struct AudioEngineTests {
             try Test.cancel("\(output.name) has no way to start here: \(error)")
         }
         #expect(engine.state == .running(output))
+        #expect(engine.runningSampleRate == before.sampleRate)
+        #expect(engine.runningBufferFrames == Int(before.bufferFrames))
 
         // A generation is only taken by a render, so this proves the device calls the render core.
         let generation = pr_engine_install_graph(engine.renderEngine, nil, 0)
@@ -957,6 +1138,15 @@ struct AudioEngineTests {
 
         engine.stop()
         #expect(engine.state == .stopped)
+
+        // Following the default output, still with its current settings. Nothing is requested.
+        let following = settings(for: nil, sampleRate: before.sampleRate, bufferFrames: Int(before.bufferFrames))
+        try engine.start(settings: following)
+        #expect(engine.state == .running(output))
+        #expect(engine.runningSampleRate == before.sampleRate)
+        #expect(engine.runningBufferFrames == Int(before.bufferFrames))
+        engine.stop()
+
         #expect(DeviceCatalog.currentSettings(of: output) == before)
     }
 }

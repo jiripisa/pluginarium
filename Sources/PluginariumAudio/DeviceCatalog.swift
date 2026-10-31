@@ -1,5 +1,6 @@
 import CoreAudio
 import Foundation
+import PluginariumCore
 
 /// An audio device as the system reports it. `id` is the device UID, which survives reconnecting.
 public struct AudioDevice: Identifiable, Equatable, Sendable {
@@ -32,8 +33,18 @@ struct DeviceSettingsChange: Equatable {
     var bufferFrames: UInt32?
 }
 
-func settingsToWrite(current: DeviceSettings, requested: DeviceSettings) -> DeviceSettingsChange {
-    DeviceSettingsChange(
+/// What `settings` asks of its device. Only a device the owner picked is given settings. With no
+/// device picked the engine follows the default output, which can become any device at any plug
+/// event, so nil here means that device keeps what it runs at.
+func chosenSettings(in settings: AppSettings) -> DeviceSettings? {
+    guard settings.audioDeviceUID != nil else { return nil }
+    return DeviceSettings(sampleRate: settings.sampleRate, bufferFrames: UInt32(settings.bufferFrames))
+}
+
+/// `requested` is nil for a device that keeps what it runs at, so nothing is written to it.
+func settingsToWrite(current: DeviceSettings, requested: DeviceSettings?) -> DeviceSettingsChange {
+    guard let requested else { return DeviceSettingsChange() }
+    return DeviceSettingsChange(
         sampleRate: requested.sampleRate != current.sampleRate ? requested.sampleRate : nil,
         bufferFrames: requested.bufferFrames != current.bufferFrames ? requested.bufferFrames : nil
     )

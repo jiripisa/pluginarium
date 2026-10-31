@@ -137,16 +137,13 @@ func play() async {
         fail("\(id.type) \(id.subtype) \(id.manufacturer) cannot play: \(String(describing: status))", status: 1)
     }
 
-    var settings = AppSettings.defaults
-    settings.audioDeviceUID = device.id
-    settings.sampleRate = current.sampleRate
-    settings.bufferFrames = Int(current.bufferFrames)
     do {
-        try engine.start(settings: settings)
+        // No device named, so the engine keeps what the default output runs at and writes nothing.
+        try engine.start(settings: .defaults)
     } catch {
         fail("cannot start \(device.name): \(error)", status: 1)
     }
-    guard case .running = engine.state else { fail("\(device.name) did not start", status: 1) }
+    guard engine.state == .running(device) else { fail("\(device.name) did not start", status: 1) }
 
     pr_engine_push_midi(engine.renderEngine, slot, noteOn, middleC, noteVelocity)
     for _ in 0..<noteSeconds {

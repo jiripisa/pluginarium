@@ -11,7 +11,8 @@ public enum EngineState: Equatable, Sendable {
     case stopped
     case running(AudioDevice)
     /// The UID of the device that cannot be used, which is empty when the default output was
-    /// wanted and there is none. A device that will not stop reports this too.
+    /// wanted and there is none. A device that will not stop reports this too, and so does a restart
+    /// onto a default output the render core cannot run.
     case deviceMissing(String)
 }
 
@@ -62,9 +63,15 @@ public final class AudioEngine {
 
     public private(set) var state: EngineState = .stopped {
         didSet {
+            if case .running = state {} else { runningSettings = nil }
             if state != oldValue { onDeviceChange?() }
         }
     }
+
+    /// What the running device reports, which a `ConfigurationRunner` has to be built from. Nil
+    /// unless `state` is `.running`.
+    public var runningSampleRate: Double? { runningSettings?.sampleRate }
+    public var runningBufferFrames: Int? { runningSettings.map { Int($0.bufferFrames) } }
 
     /// True when the device has inputs and the microphone permission is denied. Its input channels
     /// then read as silence.
@@ -79,6 +86,8 @@ public final class AudioEngine {
     public var dspLoad: Double { pr_engine_load(renderEngine) }
 
     @ObservationIgnored var seams = Seams()
+
+    private var runningSettings: DeviceSettings?
 
     @ObservationIgnored private let devices: () -> [AudioDevice]
     @ObservationIgnored private var deviceListener: DeviceListListener?
@@ -103,12 +112,18 @@ public final class AudioEngine {
         pr_engine_destroy(renderEngine)
     }
 
-    /// Plays on the device in `settings`, or on the default output when it names none, replacing
-    /// what runs now. A device that is not there is not an error: `state` becomes `.deviceMissing`,
-    /// and the device starts when it returns. Throws without touching what runs when the render
-    /// core cannot take the settings, and with `state` at `.stopped` when the device fails.
+    /// Plays on the device in `settings`, replacing what runs now. That device is written the sample
+    /// rate and buffer size where they differ. With no device named, the engine follows the default
+    /// output instead and never writes to it: `settings` gives no values then, and the device keeps
+    /// what it runs at, for this start and every restart. Read `runningSampleRate` for the result.
+    ///
+    /// A device that is not there is not an error: `state` becomes `.deviceMissing`, and the device
+    /// starts when it returns. Throws without touching what runs when the render core cannot take
+    /// the settings. Throws with `state` at `.stopped` when the device fails, or when the default
+    /// output runs a buffer above `maxFrames`; a restart cannot throw, so it reports that device as
+    /// `.deviceMissing` and tries again at the next device change.
     public func start(settings: AppSettings) throws {
-        guard settings.sampleRate > 0, (1...Int(Self.maxFrames)).contains(settings.bufferFrames) else {
+        guard settings.audioDeviceUID == nil || (settings.sampleRate > 0 && (1...Int(Self.maxFrames)).contains(settings.bufferFrames)) else {
             throw AudioEngineError.unsupportedSettings(sampleRate: settings.sampleRate, bufferFrames: settings.bufferFrames)
         }
         lastSettings = settings
@@ -169,18 +184,16 @@ public final class AudioEngine {
         }
         guard !device.outputChannels.isEmpty else { throw AudioEngineError.noOutputChannels(device.name) }
 
-        let request = StreamRequest(
-            device: device,
-            settings: DeviceSettings(sampleRate: settings.sampleRate, bufferFrames: UInt32(settings.bufferFrames)),
-            usesInput: canUseInput(of: device)
-        )
-        pr_engine_set_sample_rate(renderEngine, settings.sampleRate)
+        let request = StreamRequest(device: device, settings: chosenSettings(in: settings), usesInput: canUseInput(of: device))
         let opened = try seams.open(request, renderEngine)
-
-        // Before the first render, which can come any time after the stream starts.
-        pr_engine_set_audio_running(renderEngine, true)
         stream = opened
         do {
+            guard opened.settings.bufferFrames <= Self.maxFrames else {
+                throw AudioEngineError.unsupportedSettings(sampleRate: opened.settings.sampleRate, bufferFrames: Int(opened.settings.bufferFrames))
+            }
+            pr_engine_set_sample_rate(renderEngine, opened.settings.sampleRate)
+            // Before the first render, which can come any time after the stream starts.
+            pr_engine_set_audio_running(renderEngine, true)
             try opened.start()
         } catch {
             guard stopStream() else {
@@ -189,6 +202,7 @@ public final class AudioEngine {
             }
             throw error
         }
+        runningSettings = opened.settings
         state = .running(device)
     }
 
