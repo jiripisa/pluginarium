@@ -43,9 +43,20 @@ PREngine *pr_engine_create(uint32_t maxFrames, double sampleRate);
 void pr_engine_destroy(PREngine *engine);
 
 /// Copies its input and allocates all buffers; the arrays can be released on return.
-/// The new graph takes over at the start of the next render. Units in a replaced graph
-/// must stay alive until that render has happened.
-void pr_engine_install_graph(PREngine *engine, const PRStrip *strips, uint32_t count);
+/// The new graph takes over at the start of the next render. Returns its generation, which
+/// increases by one per install, or UINT64_MAX when allocation fails and the running graph stays.
+///
+/// A caller keeps every unit of a replaced graph alive until pr_engine_is_generation_taken
+/// returns true for the generation that replaced it.
+uint64_t pr_engine_install_graph(PREngine *engine, const PRStrip *strips, uint32_t count);
+
+/// True once a render has started a block with this generation or a newer one, so no render can
+/// still use an older graph. Always true while audio is not running, since no render is coming.
+bool pr_engine_is_generation_taken(PREngine *engine, uint64_t generation);
+
+/// Tells the engine whether renders are coming. The default is false, for offline rendering.
+/// Set it true before the first render, and false only after the device has fully stopped.
+void pr_engine_set_audio_running(PREngine *engine, bool running);
 
 /// Frees graphs the render thread has finished with.
 void pr_engine_collect_garbage(PREngine *engine);
@@ -71,6 +82,9 @@ double pr_engine_load(PREngine *engine);
 
 /// Installs beat, tempo and transport callbacks reading the engine's transport.
 OSStatus pr_install_host_callbacks(AudioUnit unit, PREngine *engine);
+
+/// The callbacks pr_install_host_callbacks gives a unit. The property itself cannot be read back.
+HostCallbackInfo pr_host_callback_info(PREngine *engine);
 
 /// Gives the unit its input record and sets the render callback on every input bus. Call it
 /// before installing a graph with the unit. Safe to call again for the same unit. Bus 0 carries

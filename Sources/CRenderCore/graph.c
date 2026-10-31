@@ -201,6 +201,8 @@ static void take_pending_graph(PREngine *engine) {
     if (pending == NULL) return;
     if (engine->current != NULL) pr_graph_retire(engine, engine->current);
     engine->current = pending;
+    // Release: the caller may dispose units this thread rendered in earlier blocks.
+    atomic_store_explicit(&engine->takenGeneration, pending->generation, memory_order_release);
 }
 
 void pr_engine_render(PREngine *engine, uint32_t frames,
@@ -356,12 +358,19 @@ void pr_graph_retire(PREngine *engine, PRGraph *graph) {
                                                     memory_order_release, memory_order_relaxed));
 }
 
-void pr_engine_install_graph(PREngine *engine, const PRStrip *strips, uint32_t count) {
+uint64_t pr_engine_install_graph(PREngine *engine, const PRStrip *strips, uint32_t count) {
     PRGraph *graph = build_graph(engine, strips, count);
-    if (graph == NULL) return; // the running graph stays
+    if (graph == NULL) return UINT64_MAX; // never taken while running, so the caller keeps its units
+    graph->generation = ++engine->installedGeneration;
     engine->latest = graph;
     PRGraph *unused = atomic_exchange_explicit(&engine->pending, graph, memory_order_acq_rel);
     if (unused != NULL) pr_graph_retire(engine, unused);
+    return graph->generation;
+}
+
+bool pr_engine_is_generation_taken(PREngine *engine, uint64_t generation) {
+    if (!atomic_load_explicit(&engine->audioRunning, memory_order_acquire)) return true;
+    return atomic_load_explicit(&engine->takenGeneration, memory_order_acquire) >= generation;
 }
 
 void pr_engine_collect_garbage(PREngine *engine) {

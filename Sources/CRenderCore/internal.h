@@ -55,6 +55,7 @@ typedef struct {
 /// A complete, immutable routing, in one allocation.
 typedef struct PRGraph {
     struct PRGraph *next; // link in PREngine.retired
+    uint64_t generation;
     PRStripNode *strips;
     uint32_t stripCount;
     AudioUnit midiTargets[PR_MIDI_SLOTS];
@@ -78,8 +79,11 @@ struct PREngine {
 
     _Atomic(PRGraph *) pending; // newest graph no render has taken yet
     _Atomic(PRGraph *) retired; // stack of graphs waiting for pr_engine_collect_garbage
+    _Atomic(uint64_t) takenGeneration; // newest generation a render has started a block with
+    _Atomic(bool) audioRunning;
 
     // Control thread only.
+    uint64_t installedGeneration;
     PRGraph *latest; // newest installed graph, which stays alive until the next install
     PRInputRecord *records;
 

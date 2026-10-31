@@ -48,7 +48,9 @@ private final class Rig {
         pr_engine_destroy(engine)
     }
 
-    func install(_ strips: [StripSpec], inputCallbacks: Bool = true) {
+    @discardableResult
+    func install(_ strips: [StripSpec], inputCallbacks: Bool = true) -> UInt64 {
+        var generation: UInt64 = 0
         plugins += strips.flatMap(\.plugins)
         if inputCallbacks {
             for plugin in strips.flatMap(\.plugins) {
@@ -68,8 +70,25 @@ private final class Rig {
                     rowCount: UInt32(strip.rows.count), audioOut: strip.audioOut, midiSlot: strip.midiSlot
                 )
             }
-            pr_engine_install_graph(engine, cStrips, UInt32(cStrips.count))
+            generation = pr_engine_install_graph(engine, cStrips, UInt32(cStrips.count))
         }
+        return generation
+    }
+
+    /// Lets go of every other plugin, which disposes it.
+    func retainOnly(_ plugin: HostedPlugin) {
+        plugins = [plugin]
+    }
+
+    func isTaken(_ generation: UInt64) -> Bool {
+        pr_engine_is_generation_taken(engine, generation)
+    }
+
+    /// Gives up after a few seconds, so a generation that is never taken fails rather than hangs.
+    func waitUntilTaken(_ generation: UInt64) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !isTaken(generation), ContinuousClock.now < deadline { await Task.yield() }
+        return isTaken(generation)
     }
 
     /// Calls `body` with one `PRRow` per list; the pointers are valid only during the call.
@@ -541,22 +560,8 @@ struct RenderCoreTests {
             StripSpec(source: try await gain(), audioIn: PRChannels(left: 0, right: 1), audioOut: PRChannels(left: 0, right: 1)),
             StripSpec(source: try await gain(), audioIn: PRChannels(left: 0, right: 1), audioOut: PRChannels(left: 2, right: 3)),
         ]
-        let handle = EngineHandle(engine: rig.engine)
         let progress = RenderProgress()
-        let renderer = Task.detached {
-            let count = Int(blockFrames)
-            let input = UnsafeMutablePointer<Float>.allocate(capacity: count)
-            let left = UnsafeMutablePointer<Float>.allocate(capacity: count)
-            let right = UnsafeMutablePointer<Float>.allocate(capacity: count)
-            defer { [input, left, right].forEach { $0.deallocate() } }
-            input.initialize(repeating: 0.5, count: count)
-            let inputs: [UnsafePointer<Float>?] = [UnsafePointer(input), UnsafePointer(input)]
-            let outputs: [UnsafeMutablePointer<Float>?] = [left, right]
-            while !progress.stop.load(ordering: .relaxed) {
-                pr_engine_render(handle.engine, blockFrames, inputs, 2, outputs, 2)
-                progress.renders.add(1, ordering: .relaxed)
-            }
-        }
+        let renderer = startRendering(rig, progress: progress)
         for iteration in 0..<300 {
             rig.install(iteration.isMultiple(of: 2) ? strips : [strips[0]])
             pr_engine_collect_garbage(rig.engine)
@@ -567,6 +572,74 @@ struct RenderCoreTests {
         progress.stop.store(true, ordering: .relaxed)
         await renderer.value
         #expect(progress.renders.load(ordering: .relaxed) >= 600)
+    }
+
+    // MARK: - Graph generations
+
+    @Test("A generation is taken once a render starts with it")
+    func generationTakenByRender() {
+        let rig = Rig()
+        pr_engine_set_audio_running(rig.engine, true)
+        let first = rig.install([])
+        #expect(!rig.isTaken(first))
+        _ = rig.render(frames: 0)
+        #expect(!rig.isTaken(first))
+        _ = rig.render()
+        #expect(rig.isTaken(first))
+
+        let second = rig.install([])
+        #expect(second == first + 1)
+        #expect(!rig.isTaken(second))
+        #expect(rig.isTaken(first))
+        _ = rig.render()
+        #expect(rig.isTaken(second))
+        #expect(!rig.isTaken(second + 1))
+    }
+
+    @Test("Taking a generation covers every older one")
+    func olderGenerationsAreTaken() {
+        let rig = Rig()
+        pr_engine_set_audio_running(rig.engine, true)
+        let generations = (0..<3).map { _ in rig.install([]) }
+        #expect(generations.allSatisfy { !rig.isTaken($0) })
+        _ = rig.render()
+        #expect(generations.allSatisfy { rig.isTaken($0) })
+        #expect(!rig.isTaken(rig.install([])))
+    }
+
+    @Test("Every generation counts as taken while audio is not running")
+    func allTakenWhileNotRunning() {
+        let rig = Rig()
+        let generation = rig.install([])
+        #expect(rig.isTaken(generation))
+        #expect(rig.isTaken(generation + 100))
+
+        pr_engine_set_audio_running(rig.engine, true)
+        #expect(!rig.isTaken(generation))
+        pr_engine_set_audio_running(rig.engine, false)
+        #expect(rig.isTaken(generation))
+    }
+
+    @Test("A replaced unit can be disposed once its replacement is taken")
+    func replacedUnitDisposedOnceTaken() async throws {
+        let strip = { (plugin: HostedPlugin) in StripSpec(source: plugin, audioIn: PRChannels(left: 0, right: 1)) }
+        let rig = Rig()
+        pr_engine_set_audio_running(rig.engine, true)
+        rig.install([strip(try await gain())])
+        let progress = RenderProgress()
+        let renderer = startRendering(rig, progress: progress)
+        for _ in 0..<100 {
+            let next = try await gain()
+            let generation = rig.install([strip(next)])
+            let taken = await rig.waitUntilTaken(generation)
+            #expect(taken)
+            guard taken else { break }
+            rig.retainOnly(next)
+            pr_engine_collect_garbage(rig.engine)
+        }
+        progress.stop.store(true, ordering: .relaxed)
+        await renderer.value
+        pr_engine_set_audio_running(rig.engine, false)
     }
 
     // MARK: - Real Audio Units
@@ -655,6 +728,51 @@ struct RenderCoreTests {
         expectLevel(rig.render()[1], 501 * beatsPerBlock)
         expectLevel(rig.render()[0], 0.12)
     }
+
+    @Test("The legacy transport callback reports the same state as the current one")
+    func legacyTransportCallback() throws {
+        let rig = Rig()
+        let info = pr_host_callback_info(rig.engine)
+        let legacy = try #require(info.transportStateProc)
+        let current = try #require(info.transportStateProc2)
+
+        func read() -> (legacy: TransportReading, current: TransportReading) {
+            var viaLegacy = TransportReading()
+            var viaCurrent = TransportReading()
+            var recording: DarwinBoolean = true
+            #expect(legacy(info.hostUserData, &viaLegacy.playing, &viaLegacy.changed, &viaLegacy.sample, &viaLegacy.cycling, &viaLegacy.cycleStart, &viaLegacy.cycleEnd) == noErr)
+            #expect(current(info.hostUserData, &viaCurrent.playing, &recording, &viaCurrent.changed, &viaCurrent.sample, &viaCurrent.cycling, &viaCurrent.cycleStart, &viaCurrent.cycleEnd) == noErr)
+            #expect(recording == false)
+            return (viaLegacy, viaCurrent)
+        }
+
+        pr_engine_set_transport(rig.engine, 120, true)
+        _ = rig.render()
+        var state = read()
+        #expect(state.legacy == state.current)
+        #expect(state.legacy == TransportReading(playing: true, changed: true, sample: Double(blockFrames), cycling: false, cycleStart: 0, cycleEnd: 0))
+
+        _ = rig.render()
+        state = read()
+        #expect(state.legacy == state.current)
+        #expect(state.legacy.changed == false)
+
+        pr_engine_set_transport(rig.engine, 120, false)
+        _ = rig.render()
+        state = read()
+        #expect(state.legacy == state.current)
+        #expect(state.legacy == TransportReading(playing: false, changed: true, sample: Double(blockFrames) * 2, cycling: false, cycleStart: 0, cycleEnd: 0))
+    }
+}
+
+/// Starts from values the expected states contradict, so a field left unwritten fails the test.
+private struct TransportReading: Equatable {
+    var playing: DarwinBoolean = true
+    var changed: DarwinBoolean = true
+    var sample: Float64 = -1
+    var cycling: DarwinBoolean = true
+    var cycleStart: Float64 = -1
+    var cycleEnd: Float64 = -1
 }
 
 private struct EngineHandle: @unchecked Sendable {
@@ -665,4 +783,23 @@ private struct EngineHandle: @unchecked Sendable {
 private final class RenderProgress: Sendable {
     let stop = Atomic<Bool>(false)
     let renders = Atomic<Int>(0)
+}
+
+/// Renders blocks of 0.5 in a loop on another thread until `progress.stop` is set.
+private func startRendering(_ rig: Rig, progress: RenderProgress) -> Task<Void, Never> {
+    let handle = EngineHandle(engine: rig.engine)
+    return Task.detached {
+        let count = Int(blockFrames)
+        let input = UnsafeMutablePointer<Float>.allocate(capacity: count)
+        let left = UnsafeMutablePointer<Float>.allocate(capacity: count)
+        let right = UnsafeMutablePointer<Float>.allocate(capacity: count)
+        defer { [input, left, right].forEach { $0.deallocate() } }
+        input.initialize(repeating: 0.5, count: count)
+        let inputs: [UnsafePointer<Float>?] = [UnsafePointer(input), UnsafePointer(input)]
+        let outputs: [UnsafeMutablePointer<Float>?] = [left, right]
+        while !progress.stop.load(ordering: .relaxed) {
+            pr_engine_render(handle.engine, blockFrames, inputs, 2, outputs, 2)
+            progress.renders.add(1, ordering: .relaxed)
+        }
+    }
 }

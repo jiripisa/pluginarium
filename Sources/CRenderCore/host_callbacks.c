@@ -49,12 +49,23 @@ static OSStatus transport_state(void *userData, Boolean *playing, Boolean *recor
     return noErr;
 }
 
-OSStatus pr_install_host_callbacks(AudioUnit unit, PREngine *engine) {
-    HostCallbackInfo info = {
+/// Apple's AudioUnitSDK, and the plugins built on it, call only this older form.
+static OSStatus legacy_transport_state(void *userData, Boolean *playing, Boolean *changed, Float64 *sample,
+                                       Boolean *cycling, Float64 *cycleStart, Float64 *cycleEnd) {
+    return transport_state(userData, playing, NULL, changed, sample, cycling, cycleStart, cycleEnd);
+}
+
+HostCallbackInfo pr_host_callback_info(PREngine *engine) {
+    return (HostCallbackInfo){
         .hostUserData = engine,
         .beatAndTempoProc = beat_and_tempo,
         .musicalTimeLocationProc = musical_time_location,
+        .transportStateProc = legacy_transport_state,
         .transportStateProc2 = transport_state,
     };
+}
+
+OSStatus pr_install_host_callbacks(AudioUnit unit, PREngine *engine) {
+    HostCallbackInfo info = pr_host_callback_info(engine);
     return AudioUnitSetProperty(unit, kAudioUnitProperty_HostCallbacks, kAudioUnitScope_Global, 0, &info, sizeof(info));
 }

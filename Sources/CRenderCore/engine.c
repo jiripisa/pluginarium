@@ -45,6 +45,10 @@ void pr_engine_destroy(PREngine *engine) {
     free(engine);
 }
 
+void pr_engine_set_audio_running(PREngine *engine, bool running) {
+    atomic_store_explicit(&engine->audioRunning, running, memory_order_release);
+}
+
 // MARK: - MIDI
 
 void pr_engine_push_midi(PREngine *engine, int32_t slot, uint8_t status, uint8_t d1, uint8_t d2) {
