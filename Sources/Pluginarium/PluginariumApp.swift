@@ -64,8 +64,11 @@ private struct RootView: View {
             }
         }
         .focusEffectDisabled()
+        .panelMenuBackdrop(model)
         .addDialog(model)
+        .nameDialog(Binding(get: { model.nameDialog }, set: { model.nameDialog = $0 }))
         .choiceDialog(Binding(get: { model.dialog }, set: { model.dialog = $0 }))
+        .toast(model.toast)
         // The window adds the title bar to this, and its minimum is for the whole window.
         .frame(minWidth: 900, minHeight: 600 - titleBarHeight)
         .onGeometryChange(for: CGFloat.self, of: \.safeAreaInsets.top) { titleBarHeight = $0 }

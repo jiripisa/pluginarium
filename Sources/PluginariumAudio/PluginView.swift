@@ -13,6 +13,17 @@ extension HostedPlugin {
         return await requestedControllerView(timeout: .seconds(5))
     }
 
+    /// The view controller behind the last view, whose preferred size says what the view wants.
+    /// A view from a Cocoa factory has none.
+    @MainActor
+    public var viewController: NSViewController? { viewOwner as? NSViewController }
+
+    /// Lets go of what owns the last view. Call once that view has left its window.
+    @MainActor
+    public func releaseView() {
+        viewOwner = nil
+    }
+
     // MARK: - Private
 
     @MainActor
@@ -42,7 +53,7 @@ extension HostedPlugin {
         let makeView = unsafeBitCast(method_getImplementation(method), to: Factory.self)
         let factory = factoryClass.init()
         let view = makeView(factory, selector, audioUnit, NSSize(width: 800, height: 600))?.takeUnretainedValue()
-        // The view does not own its factory; keep it for as long as the plugin lives.
+        // The view does not own its factory; keep it for as long as the view is shown.
         if view != nil { viewOwner = factory }
         return view
     }
@@ -76,7 +87,7 @@ extension HostedPlugin {
             }
         }
         guard let controller else { return nil }
-        // The view does not own its controller; keep it for as long as the plugin lives.
+        // The view does not own its controller; keep it for as long as the view is shown.
         viewOwner = controller
         return controller.view
     }

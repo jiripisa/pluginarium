@@ -33,7 +33,8 @@ public final class HostedPlugin: @unchecked Sendable {
     /// Channels per bus: 2, or 1 when `configure` found the unit refuses stereo.
     public private(set) var channelCount: UInt32 = 2
     private var isInitialized = false
-    /// Keeps the owner of the plugin's view (view controller or Cocoa factory) alive, since a view does not own it.
+    /// Keeps the owner of the plugin's view (view controller or Cocoa factory) alive, since a view does
+    /// not own it. `releaseView` lets go of it.
     var viewOwner: AnyObject?
 
     private init(id: PluginID, audioUnit: AudioUnit) {

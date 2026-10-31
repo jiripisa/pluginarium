@@ -11,6 +11,7 @@ struct ChannelView: View {
     let index: Int
 
     @Environment(AppModel.self) private var model
+    @State private var presetAnchor = CGRect.zero
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
@@ -19,7 +20,7 @@ struct ChannelView: View {
             if fields.audioIn { audioIn }
             if fields.sidechainIn { sidechainIn }
             plugin
-            if canOpen { openButton }
+            if hasPluginControls { openButton }
             effects
             MeterView(channel: channel.id, audio: model.audio)
             audioOut
@@ -44,9 +45,21 @@ struct ChannelView: View {
     }
 
     /// Only a plugin that runs has a window and a sound to pick.
-    private var canOpen: Bool {
+    private var isHosted: Bool { audio?.runner?.plugin(channel: channel.id, effect: nil) != nil }
+
+    private var isWindowOpen: Bool { model.pluginWindows.isOpen(channel: channel.id, effect: nil) }
+
+    /// A fault of an effect shows on the effect, and the channel's own plugin plays on.
+    private var isFaultOfAnEffect: Bool {
+        guard case .loadFailed(let message) = status else { return false }
+        return channel.effects.joined().contains { audio?.runner?.failure(effect: $0.id) == message }
+    }
+
+    private var hasPluginControls: Bool {
         switch status {
-        case .pluginMissing, .loadFailed, .loading: false
+        case .pluginMissing: false
+        case .loadFailed: isFaultOfAnEffect
+        case .loading: isHosted
         case .ready, .routingUnavailable, nil: true
         }
     }
@@ -147,29 +160,31 @@ struct ChannelView: View {
                 .foregroundStyle(Color.legend)
                 .frame(height: 29, alignment: .leading)
                 .help(channel.slot.displayName)
-            switch status {
-            case .pluginMissing:
-                faultBox("Plugin not installed on this Mac", help: nil) {
-                    Button("Replace plugin") { model.beginReplacePlugin(channel: channel.id) }
-                        .buttonStyle(.wideKey)
-                }
-            case .loadFailed(let message):
-                faultBox("Plugin failed to load", help: message)
-            case .loading:
-                Text("Loading")
-                    .font(.panelText(14))
-                    .foregroundStyle(Color.muted)
-                    .padding(.vertical, 2)
-            case .ready, .routingUnavailable, nil:
+            if hasPluginControls {
                 presetButton
+            } else {
+                switch status {
+                case .pluginMissing:
+                    faultBox("Plugin not installed on this Mac", help: nil) {
+                        Button("Replace plugin") { model.beginReplacePlugin(channel: channel.id) }
+                            .buttonStyle(.wideKey)
+                    }
+                case .loadFailed(let message):
+                    faultBox("Plugin failed to load", help: message)
+                default:
+                    Text("Loading")
+                        .font(.panelText(14))
+                        .foregroundStyle(Color.muted)
+                        .padding(.vertical, 2)
+                }
             }
         }
     }
 
     private var presetButton: some View {
-        Button { model.showPresetMenu(channel: channel.id, effect: nil) } label: {
+        Button { model.showPresetMenu(channel: channel.id, effect: nil, anchor: presetAnchor) } label: {
             HStack(spacing: 6) {
-                Text(channel.slot.presetName ?? "Default sound")
+                Text(model.presetLabel(for: channel.slot))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
@@ -180,15 +195,18 @@ struct ChannelView: View {
             .padding(.vertical, 2)
             .overlay(alignment: .bottom) { Rectangle().fill(Color.line).frame(height: 1) }
             .contentShape(Rectangle())
+            .opacity(isHosted ? 1 : 0.5)
         }
         .buttonStyle(.plain)
+        .disabled(!isHosted)
+        .panelMenuAnchor($presetAnchor)
     }
 
     private var openButton: some View {
-        Button { model.togglePluginWindow(channel: channel.id, effect: nil) } label: {
+        Button { model.pluginWindows.toggle(channel: channel.id, effect: nil) } label: {
             HStack(spacing: 7) {
-                LED(tone: .off)
-                Text("Open plugin")
+                LED(tone: isWindowOpen ? .on : .off)
+                Text(isWindowOpen ? "Close plugin" : "Open plugin")
                     .font(.panelText(12.5))
                     .panelSpacing(0.06, size: 12.5)
                     .textCase(.uppercase)
@@ -198,12 +216,12 @@ struct ChannelView: View {
             .padding(4)
             .overlay(Rectangle().strokeBorder(Color.lineStrong, lineWidth: 1))
             .contentShape(Rectangle())
+            .opacity(isHosted ? 1 : 0.5)
         }
         .buttonStyle(.plain)
+        .disabled(!isHosted)
     }
 
-    /// Existing effects take their rows, so the layout is right. Joining the parallel ones with
-    /// lines comes with the effect chain.
     private var effects: some View {
         VStack(alignment: .leading, spacing: 5) {
             Legend("Effects")
@@ -283,68 +301,5 @@ private struct RemoveButtonStyle: ButtonStyle {
         var body: some View {
             content(isHovered).onHover { isHovered = $0 }
         }
-    }
-}
-
-/// `.fx-row`: the effects of one row side by side.
-private struct EffectRow: View {
-    let channel: Channel
-    let row: [InsertEffect]
-
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 4) {
-                ForEach(row) { effect in
-                    EffectSlotButton(name: effect.slot.displayName, help: help(for: effect)) {
-                        model.showEffectMenu(channel: channel.id, effect: effect.id)
-                    }
-                }
-            }
-            ForEach(row.filter { $0.sidechainIn != nil }) { effect in
-                if let source = effect.sidechainIn {
-                    Text("Sidechain from \(source.label(prefix: "In"))")
-                        .font(.panelText(12))
-                        .foregroundStyle(Color.muted)
-                }
-            }
-        }
-    }
-
-    private func help(for effect: InsertEffect) -> String {
-        guard let source = effect.sidechainIn else { return effect.slot.displayName }
-        return "\(effect.slot.displayName), sidechain from \(source.label(prefix: "In"))"
-    }
-}
-
-/// `.fx`.
-private struct EffectSlotButton: View {
-    let name: String
-    let help: String
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Text(name)
-                .font(.panelText(12.5))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(Color.ledSoft)
-                .padding(.vertical, 4)
-                .padding(.horizontal, 7)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.panelDeep)
-                .overlay {
-                    Rectangle().strokeBorder(Color.led.opacity(0.15), lineWidth: 8).blur(radius: 4).clipped()
-                }
-                .overlay(Rectangle().strokeBorder(isHovered ? Color.led : Color.line, lineWidth: 1))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        .help(help)
     }
 }

@@ -16,6 +16,7 @@ private let brokenID = PluginID(type: "aufx", subtype: "PlBd", manufacturer: "Pl
 private let unknownInstrumentID = PluginID(type: "aumu", subtype: "None", manufacturer: "Plug")
 private let unknownEffectID = PluginID(type: "aufx", subtype: "None", manufacturer: "Plug")
 private let delayID = PluginID(type: "aufx", subtype: "dely", manufacturer: "appl")
+private let reverbID = PluginID(type: "aufx", subtype: "mrev", manufacturer: "appl")
 
 private let out01 = AudioChannels.stereo(left: 0, right: 1)
 private let out23 = AudioChannels.stereo(left: 2, right: 3)
@@ -1010,9 +1011,9 @@ struct RunnerTests {
             var callbacks = 0
             let prepare = runner.seams.prepare
             let installCallbacks = runner.seams.installCallbacks
-            runner.seams.prepare = { plugin, state, sampleRate, maxFrames in
+            runner.seams.prepare = { plugin, slot, sampleRate, maxFrames in
                 await gate.pass(plugin.id)
-                try await prepare(plugin, state, sampleRate, maxFrames)
+                try await prepare(plugin, slot, sampleRate, maxFrames)
             }
             runner.seams.installCallbacks = { plugin, engine in
                 callbacks += 1
@@ -1154,6 +1155,103 @@ struct RunnerTests {
             await gate.open(brokenID)
             await finishLoads(runner)
             #expect(runner.status == [channel.id: .ready])
+        }
+    }
+
+    // MARK: - Presets
+
+    /// What Apple's reverb reports after `preset`, on a unit set up the way the runner sets up its own.
+    private func reverbState(on preset: String?) async throws -> Data {
+        let plugin = try await loadPlugin(type: "aufx", subtype: "mrev", manufacturer: "appl")
+        if let preset { try plugin.selectFactoryPreset(preset) }
+        return try plugin.fullState()
+    }
+
+    private func lastFactoryPreset() async throws -> String {
+        let plugin = try await loadPlugin(type: "aufx", subtype: "mrev", manufacturer: "appl")
+        return try #require(plugin.factoryPresets().last)
+    }
+
+    @Test func aChannelNamingAFactoryPresetStartsOnIt() async throws {
+        try await withRunner { runner, _ in
+            let name = try await lastFactoryPreset()
+            var channel = effectChannel(reverbID)
+            channel.slot.presetName = name
+            await runner.apply(configuration(channel))
+            let plugin = try #require(runner.plugin(channel: channel.id, effect: nil))
+            #expect(try plugin.fullState() == (try await reverbState(on: name)))
+        }
+    }
+
+    @Test func anEffectNamingAFactoryPresetStartsOnIt() async throws {
+        try await withRunner { runner, _ in
+            let name = try await lastFactoryPreset()
+            var effect = insert(reverbID)
+            effect.slot.presetName = name
+            let channel = instrumentChannel(effects: [[effect]])
+            await runner.apply(configuration(channel))
+            let plugin = try #require(runner.plugin(channel: channel.id, effect: effect.id))
+            #expect(try plugin.fullState() == (try await reverbState(on: name)))
+        }
+    }
+
+    @Test func aPresetTheSlotHoldsTheStateOfIsRestoredAndNotLookedUp() async throws {
+        try await withRunner { runner, _ in
+            let name = try await lastFactoryPreset()
+            let state = try await reverbState(on: nil)
+            var channel = effectChannel(reverbID, state: state)
+            channel.slot.presetName = name
+            await runner.apply(configuration(channel))
+            let plugin = try #require(runner.plugin(channel: channel.id, effect: nil))
+            #expect(try plugin.fullState() == state)
+        }
+    }
+
+    @Test func aFactoryPresetThatIsGoneStillLoadsThePlugin() async throws {
+        try await withRunner { runner, _ in
+            var channel = effectChannel(reverbID)
+            channel.slot.presetName = "No such preset"
+            await runner.apply(configuration(channel))
+            let plugin = try #require(runner.plugin(channel: channel.id, effect: nil))
+            #expect(runner.status[channel.id] == .ready)
+            #expect(try plugin.fullState() == (try await reverbState(on: nil)))
+        }
+    }
+
+    @Test func aRunningPluginTakesFactoryPresetsAndSavedStates() async throws {
+        try await withRunner { runner, _ in
+            let name = try await lastFactoryPreset()
+            let channel = effectChannel(reverbID)
+            await runner.apply(configuration(channel))
+            let plugin = try #require(runner.plugin(channel: channel.id, effect: nil))
+            let start = try plugin.fullState()
+
+            try plugin.selectFactoryPreset(name)
+            let selected = try plugin.fullState()
+            #expect(selected != start)
+            #expect(selected == (try await reverbState(on: name)))
+
+            try plugin.restore(start)
+            #expect(try plugin.fullState() == start)
+
+            try plugin.restore(selected)
+            #expect(try plugin.fullState() == selected)
+            let captured = runner.capturingState(of: configuration(channel))
+            #expect(captured.channels[0].slot.state == selected)
+        }
+    }
+
+    @Test func aFailedEffectNamesItsOwnFailure() async throws {
+        try await withRunner { runner, _ in
+            let bad = insert(brokenID)
+            let good = insert()
+            let missing = insert(unknownEffectID)
+            let channel = instrumentChannel(effects: [[bad, good], [missing]])
+            await runner.apply(configuration(channel))
+            #expect(runner.failure(effect: bad.id) == failureMessage(runner.status[channel.id]))
+            #expect(runner.failure(effect: good.id) == nil)
+            #expect(runner.failure(effect: missing.id) == "None is not installed on this Mac")
+            #expect(runner.plugin(channel: channel.id, effect: nil) != nil)
         }
     }
 }

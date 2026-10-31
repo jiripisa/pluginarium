@@ -819,6 +819,57 @@ struct AudioSessionTests {
         #expect(bench.opened.count == 2)
     }
 
+    @Test("Whoever shows a plugin hears before a lost device takes it")
+    func aLostDeviceWarnsBeforeThePluginsGo() async throws {
+        let bench = Bench()
+        defer { bench.session.close() }
+        let channel = instrumentChannel()
+        await bench.session.open(configuration(channel), settings: .defaults)
+        var plugins: [HostedPlugin?] = []
+        bench.session.willReleasePlugins = {
+            plugins.append(bench.session.runner?.plugin(channel: channel.id, effect: nil))
+        }
+
+        bench.loseDevices()
+
+        #expect(plugins.count == 1)
+        #expect(plugins.first.flatMap { $0 } != nil)
+        #expect(bench.session.runner == nil)
+    }
+
+    @Test("Whoever shows a plugin hears before a new device takes it")
+    func aNewDeviceWarnsBeforeThePluginsGo() async throws {
+        let first = device("a")
+        let second = device("b")
+        let bench = Bench(devices: [first, second])
+        defer { bench.session.close() }
+        let channel = instrumentChannel()
+        await bench.session.open(configuration(channel), settings: settings(for: first))
+        let old = try #require(bench.session.runner?.plugin(channel: channel.id, effect: nil))
+        var told: [Bool] = []
+        bench.session.willReleasePlugins = {
+            told.append(bench.session.runner?.plugin(channel: channel.id, effect: nil) === old)
+        }
+
+        await bench.session.applySettings(settings(for: second))
+
+        #expect(told == [true])
+        #expect(bench.session.runner?.plugin(channel: channel.id, effect: nil) !== old)
+    }
+
+    @Test("Closing tells whoever shows a plugin too")
+    func closingWarnsBeforeThePluginsGo() async throws {
+        let bench = Bench()
+        let channel = instrumentChannel()
+        await bench.session.open(configuration(channel), settings: .defaults)
+        var calls = 0
+        bench.session.willReleasePlugins = { calls += 1 }
+
+        bench.session.close()
+
+        #expect(calls == 1)
+    }
+
     @Test("A new buffer size restarts the device and keeps the plugins")
     func newBufferKeepsTheRunner() async {
         let wanted = device("a")

@@ -81,4 +81,49 @@ struct HostingTests {
         let view = await plugin.requestedControllerView(timeout: .milliseconds(200))
         #expect(view == nil)
     }
+
+    @Test("Closing a plugin's view lets go of what owns it")
+    @MainActor
+    func releasingTheView() async throws {
+        let plugin = try await HostedPlugin.load(PluginID(type: "aufx", subtype: "dely", manufacturer: "appl"))
+        try plugin.configure(sampleRate: 48_000, maxFrames: 4096)
+        weak var view = await plugin.makeView()
+        #expect(view != nil)
+        #expect(plugin.viewOwner != nil)
+        plugin.releaseView()
+        #expect(plugin.viewOwner == nil)
+    }
+
+    @Test("A test unit has no view to give")
+    @MainActor
+    func testUnitHasNoView() async throws {
+        registerTestUnits()
+        let plugin = try await HostedPlugin.load(PluginID(type: "aufx", subtype: "PlFx", manufacturer: "Plug"))
+        try plugin.configure(sampleRate: 48_000, maxFrames: 4096)
+        #expect(await plugin.makeView() == nil)
+    }
+
+    @Test("State reads the same until the plugin changes", arguments: ["dely", "mrev"])
+    func stateIsStable(subtype: String) async throws {
+        let id = PluginID(type: "aufx", subtype: subtype, manufacturer: "appl")
+        let first = try await HostedPlugin.load(id)
+        try first.configure(sampleRate: 48_000, maxFrames: 4096)
+        let state = try first.fullState()
+        #expect(try first.fullState() == state)
+        let second = try await HostedPlugin.load(id)
+        try second.configure(sampleRate: 48_000, maxFrames: 4096)
+        try second.restore(state)
+        #expect(try second.fullState() == state)
+    }
+
+    @Test("A test unit's state reads the same until it changes")
+    func testUnitStateIsStable() async throws {
+        registerTestUnits()
+        let plugin = try await HostedPlugin.load(PluginID(type: "aufx", subtype: "PlFx", manufacturer: "Plug"))
+        try plugin.configure(sampleRate: 48_000, maxFrames: 4096)
+        let state = try plugin.fullState()
+        #expect(try plugin.fullState() == state)
+        try plugin.restore(state)
+        #expect(try plugin.fullState() == state)
+    }
 }

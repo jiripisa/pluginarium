@@ -64,4 +64,22 @@ struct EffectChainTests {
         let data = try JSONEncoder().encode(config)
         #expect(try JSONDecoder().decode(Configuration.self, from: data) == config)
     }
+
+    @Test func settingASidechainChangesOnlyThatEffect() {
+        let first = InsertEffect.fixture()
+        let second = InsertEffect.fixture()
+        var channel = Channel.fixture(effectRows: [[first, second]])
+        channel.setSidechain(effectID: second.id, to: .stereo(left: 2, right: 3))
+        #expect(channel.effects[0][0].sidechainIn == nil)
+        #expect(channel.effects[0][1].sidechainIn == .stereo(left: 2, right: 3))
+        channel.setSidechain(effectID: second.id, to: nil)
+        #expect(channel.effects[0][1].sidechainIn == nil)
+    }
+
+    @Test func settingASidechainOnAnUnknownEffectChangesNothing() {
+        var channel = Channel.fixture(effectRows: [[.fixture()]])
+        let before = channel
+        channel.setSidechain(effectID: UUID(), to: .mono(0))
+        #expect(channel == before)
+    }
 }

@@ -34,7 +34,7 @@ public final class ConfigurationRunner {
     /// What the runner calls outside itself, so a test can hold a load open or fail an install.
     struct Seams {
         var load: @Sendable (PluginID) async throws -> HostedPlugin = { try await HostedPlugin.load($0) }
-        var prepare: @Sendable (HostedPlugin, Data?, Double, UInt32) async throws -> Void = ConfigurationRunner.prepare
+        var prepare: @Sendable (HostedPlugin, PluginSlot, Double, UInt32) async throws -> Void = ConfigurationRunner.prepare
         var installCallbacks: @MainActor (HostedPlugin, OpaquePointer) throws -> Void = ConfigurationRunner.installCallbacks
         var installGraph: @MainActor (OpaquePointer, UnsafePointer<PRStrip>?, UInt32) -> UInt64 = { pr_engine_install_graph($0, $1, $2) }
     }
@@ -132,6 +132,12 @@ public final class ConfigurationRunner {
         guard let owner = channels.first(where: { $0.id == channel }) else { return nil }
         guard let effect else { return hosted[channel] }
         return owner.effects.joined().contains { $0.id == effect } ? hosted[effect] : nil
+    }
+
+    /// Why the effect is not playing, for the owner. Nil for an effect that runs or is on its way.
+    public func failure(effect: UUID) -> String? {
+        guard let failure = failures[effect], let slot = wanted[effect] else { return nil }
+        return Self.message(for: failure, in: slot)
     }
 
     public func capabilities(channel: UUID) -> PluginCapabilities? {
@@ -243,7 +249,7 @@ public final class ConfigurationRunner {
                 cache[load.plugin] = .derive(auType: load.plugin.type, inputBusNames: plugin.inputBusNames)
             }
             guard let slot = wanted[load.node], slot.plugin == load.plugin else { return }
-            try await seams.prepare(plugin, slot.state, sampleRate, maxFrames)
+            try await seams.prepare(plugin, slot, sampleRate, maxFrames)
             guard isWanted(load) else { return }
             try seams.installCallbacks(plugin, engine)
             hosted[load.node] = plugin
@@ -253,9 +259,20 @@ public final class ConfigurationRunner {
     }
 
     /// Nonisolated because initializing a unit can take seconds, which the main actor must not wait for.
-    private nonisolated static func prepare(_ plugin: HostedPlugin, _ state: Data?, _ sampleRate: Double, _ maxFrames: UInt32) async throws {
+    /// A slot that names a preset but holds no state names a factory preset. One the plugin no longer
+    /// has leaves it on its default sound, which is no reason to keep it from playing.
+    private nonisolated static func prepare(_ plugin: HostedPlugin, _ slot: PluginSlot, _ sampleRate: Double, _ maxFrames: UInt32) async throws {
         try plugin.configure(sampleRate: sampleRate, maxFrames: maxFrames)
-        if let state { try plugin.restore(state) }
+        if let state = slot.state {
+            try plugin.restore(state)
+        } else if let preset = slot.presetName {
+            do {
+                try plugin.selectFactoryPreset(preset)
+            } catch {
+                let name = slot.displayName
+                logger.error("Cannot select \(preset, privacy: .public) on \(name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     private static func installCallbacks(_ plugin: HostedPlugin, _ engine: OpaquePointer) throws {

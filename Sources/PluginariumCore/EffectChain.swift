@@ -33,6 +33,15 @@ extension Channel {
         }
     }
 
+    /// Sets where the effect's sidechain comes from, or nil for none. Unknown IDs are ignored.
+    public mutating func setSidechain(effectID: UUID, to input: AudioChannels?) {
+        for rowIndex in effects.indices {
+            guard let index = effects[rowIndex].firstIndex(where: { $0.id == effectID }) else { continue }
+            effects[rowIndex][index].sidechainIn = input
+            return
+        }
+    }
+
     /// Removes the effect; a row left empty is dropped. Unknown IDs are ignored.
     public mutating func removeEffect(effectID: UUID) {
         for rowIndex in effects.indices {
