@@ -26,6 +26,8 @@
     <string>15.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Pluginarium plays audio from your interface through your plugins.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>
