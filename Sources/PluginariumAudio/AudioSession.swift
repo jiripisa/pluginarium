@@ -34,8 +34,9 @@ public final class AudioSession {
     public private(set) var router: MIDIRouter
     public let engine: AudioEngine
 
-    /// Why audio did not start, the last time it was asked to. A device that is merely gone is not
-    /// a failure here: `engine.state` reports that one.
+    /// Why audio did not start, the last time it was asked to, until it runs. The engine tries again
+    /// at each device change. A device that is merely gone is not a failure here: `engine.state`
+    /// reports that one.
     public private(set) var startFailure: String?
 
     /// The apply a device change started, since the engine's callback cannot wait for it.
@@ -179,6 +180,7 @@ public final class AudioSession {
             releaseRunner()
             return false
         }
+        if startFailure != nil { startFailure = nil }
         if runner == nil { return makeRunner(values) }
         guard values != runnerValues, let settings else { return false }
         restart(settings)

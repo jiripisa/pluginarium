@@ -372,6 +372,140 @@ struct AudioEngineTests {
         #expect(bench.engine.state == .stopped)
     }
 
+    @Test("A failed start tries again at the next device change")
+    func failedStartRetries() throws {
+        let bench = Bench()
+        bench.prepare = { $0.startError = StartFailed() }
+        #expect(throws: StartFailed.self) { try bench.engine.start(settings: settings(for: bench.devices[0])) }
+        #expect(bench.engine.state == .stopped)
+
+        bench.prepare = { _ in }
+        bench.engine.handleDeviceChange()
+
+        #expect(bench.engine.state == .running(bench.devices[0]))
+        #expect(bench.opened.count == 2)
+        #expect(bench.opened[1].startCalls == 1)
+        #expect(bench.markedRunning)
+    }
+
+    @Test("A retry on a followed default output asks nothing of it")
+    func failedStartRetriesWithoutWriting() throws {
+        let bench = Bench()
+        bench.defaultOutput = bench.devices[0]
+        bench.prepare = { $0.startError = StartFailed() }
+        #expect(throws: StartFailed.self) { try bench.engine.start(settings: settings(for: nil)) }
+
+        bench.prepare = { _ in }
+        bench.engine.handleDeviceChange()
+
+        #expect(bench.engine.state == .running(bench.devices[0]))
+        #expect(bench.opened.count == 2)
+        #expect(bench.opened.allSatisfy { $0.request.settings == nil })
+    }
+
+    @Test("A retry follows a default output that has moved")
+    func failedStartRetriesOnTheNewDefault() throws {
+        let bench = Bench(devices: [device("a"), device("b")])
+        bench.defaultOutput = bench.devices[0]
+        bench.prepare = { $0.startError = StartFailed() }
+        #expect(throws: StartFailed.self) { try bench.engine.start(settings: settings(for: nil)) }
+
+        bench.prepare = { _ in }
+        bench.defaultOutput = bench.devices[1]
+        bench.engine.handleDeviceChange()
+
+        #expect(bench.engine.state == .running(bench.devices[1]))
+    }
+
+    @Test("A retry that fails keeps waiting, and each device change tries once")
+    func failedRetryKeepsWaiting() throws {
+        let bench = Bench()
+        bench.prepare = { $0.startError = StartFailed() }
+        #expect(throws: StartFailed.self) { try bench.engine.start(settings: settings(for: bench.devices[0])) }
+
+        bench.engine.handleDeviceChange()
+        #expect(bench.engine.state == .deviceMissing("a"))
+        #expect(bench.opened.count == 2)
+
+        bench.prepare = { _ in }
+        bench.engine.handleDeviceChange()
+        #expect(bench.engine.state == .running(bench.devices[0]))
+        #expect(bench.opened.count == 3)
+    }
+
+    @Test("A device gone at the retry is reported missing, and starts when it returns")
+    func failedStartDeviceLeaves() throws {
+        let wanted = device("a")
+        let bench = Bench(devices: [wanted])
+        bench.prepare = { $0.startError = StartFailed() }
+        #expect(throws: StartFailed.self) { try bench.engine.start(settings: settings(for: wanted)) }
+
+        bench.prepare = { _ in }
+        bench.devices = []
+        bench.engine.handleDeviceChange()
+        #expect(bench.engine.state == .deviceMissing("a"))
+        #expect(bench.opened.count == 1)
+
+        bench.devices = [wanted]
+        bench.engine.handleDeviceChange()
+        #expect(bench.engine.state == .running(wanted))
+    }
+
+    @Test("A retry tells onDeviceChange what it found")
+    func failedStartRetryReports() throws {
+        let bench = Bench()
+        bench.prepare = { $0.startError = StartFailed() }
+        #expect(throws: StartFailed.self) { try bench.engine.start(settings: settings(for: bench.devices[0])) }
+        var seen: [EngineState] = []
+        bench.engine.onDeviceChange = { seen.append(bench.engine.state) }
+
+        bench.prepare = { _ in }
+        bench.engine.handleDeviceChange()
+
+        #expect(seen == [.running(bench.devices[0])])
+    }
+
+    @Test("A stop ends the retries of a failed start")
+    func stopEndsTheRetries() throws {
+        let bench = Bench()
+        bench.prepare = { $0.startError = StartFailed() }
+        #expect(throws: StartFailed.self) { try bench.engine.start(settings: settings(for: bench.devices[0])) }
+
+        bench.engine.stop()
+        bench.prepare = { _ in }
+        bench.engine.handleDeviceChange()
+
+        #expect(bench.engine.state == .stopped)
+        #expect(bench.opened.count == 1)
+    }
+
+    @Test("A device change starts nothing after a plain stop, or before any start")
+    func deviceChangeStartsNothingWhenStopped() throws {
+        let bench = Bench()
+        bench.engine.handleDeviceChange()
+        #expect(bench.opened.isEmpty)
+
+        try bench.engine.start(settings: settings(for: bench.devices[0]))
+        bench.engine.stop()
+        bench.engine.handleDeviceChange()
+
+        #expect(bench.engine.state == .stopped)
+        #expect(bench.opened.count == 1)
+    }
+
+    @Test("Settings the render core refused are never tried again")
+    func refusedSettingsAreNotRetried() {
+        let bench = Bench()
+        #expect(throws: AudioEngineError.self) {
+            try bench.engine.start(settings: settings(for: bench.devices[0], bufferFrames: renderCoreLimit + 1))
+        }
+
+        bench.engine.handleDeviceChange()
+
+        #expect(bench.engine.state == .stopped)
+        #expect(bench.opened.isEmpty)
+    }
+
     @Test("A failed start that will not stop stays marked running")
     func failedStartThatWillNotStop() throws {
         let bench = Bench()

@@ -289,6 +289,127 @@ struct AudioSessionTests {
         #expect(bench.session.runner?.plugin(channel: channel.id, effect: nil) != nil)
     }
 
+    @Test("A failed open comes back at the next device change, with the configuration")
+    func failedOpenRetries() async throws {
+        let bench = Bench()
+        defer { bench.session.close() }
+        bench.prepare = { $0.startError = StartFailed() }
+        let channel = instrumentChannel(midiIn: MIDIRoute(sourceName: "Keys", channel: .all))
+
+        await bench.session.open(configuration(channel), settings: .defaults)
+        #expect(bench.engine.state == .stopped)
+        #expect(bench.session.runner == nil)
+        #expect(bench.session.startFailure != nil)
+
+        bench.prepare = { _ in }
+        await bench.bringDevice(device("a"))
+
+        #expect(bench.engine.state == .running(device("a")))
+        #expect(bench.session.runner?.status == [channel.id: .ready])
+        #expect(bench.session.startFailure == nil)
+        #expect(bench.opened.allSatisfy { $0.request.settings == nil })
+        bench.session.router.handle(keyDown, fromSource: "Keys", at: 0)
+        expectLevel(bench.render()[0], instrumentLevel)
+    }
+
+    @Test("A failed restart on a moved default output comes back, at its rate and with its state")
+    func failedRestartRetries() async throws {
+        let bench = Bench()
+        defer { bench.session.close() }
+        let channel = delayChannel()
+        await bench.session.open(configuration(channel), settings: .defaults)
+        try setWetDryMix(of: bench.session.runner?.plugin(channel: channel.id, effect: nil), to: 33)
+
+        // The engine opens the new default, and the reopen after the runner has gone fails.
+        bench.deviceSettings = DeviceSettings(sampleRate: 44_100, bufferFrames: 512)
+        bench.prepare = { [unowned bench] in
+            if bench.opened.count == 2 { $0.startError = StartFailed() }
+        }
+        await bench.bringDevice(device("b"))
+        #expect(bench.engine.state == .stopped)
+        #expect(bench.session.runner == nil)
+        #expect(bench.session.startFailure != nil)
+
+        bench.prepare = { _ in }
+        await bench.bringDevice(device("b"))
+
+        let plugin = bench.session.runner?.plugin(channel: channel.id, effect: nil)
+        #expect(bench.engine.state == .running(device("b")))
+        #expect(try runningRate(of: plugin) == 44_100)
+        #expect(try wetDryMix(of: plugin) == 33)
+        #expect(bench.session.startFailure == nil)
+        #expect(bench.opened.count == 4)
+        #expect(bench.opened.allSatisfy { $0.request.settings == nil })
+    }
+
+    @Test("A picked device that failed comes back when it is power-cycled")
+    func failedPickedDeviceReturns() async throws {
+        let wanted = device("a")
+        let bench = Bench(devices: [wanted])
+        defer { bench.session.close() }
+        bench.prepare = { $0.startError = StartFailed() }
+        let channel = instrumentChannel()
+        await bench.session.open(configuration(channel), settings: settings(for: wanted))
+
+        bench.prepare = { _ in }
+        bench.loseDevices()
+        #expect(bench.engine.state == .deviceMissing("a"))
+        #expect(bench.session.runner == nil)
+
+        await bench.bringDevice(wanted)
+        #expect(bench.engine.state == .running(wanted))
+        #expect(bench.session.runner?.plugin(channel: channel.id, effect: nil) != nil)
+        #expect(bench.session.startFailure == nil)
+    }
+
+    @Test("A retry that fails keeps the configuration waiting for the next device change")
+    func failedRetryKeepsTheConfiguration() async throws {
+        let bench = Bench()
+        defer { bench.session.close() }
+        bench.prepare = { $0.startError = StartFailed() }
+        let channel = instrumentChannel()
+        await bench.session.open(configuration(channel), settings: .defaults)
+
+        await bench.bringDevice(device("a"))
+        #expect(bench.engine.state == .deviceMissing("a"))
+        #expect(bench.session.runner == nil)
+        #expect(bench.session.startFailure != nil)
+        #expect(bench.opened.count == 2)
+
+        bench.prepare = { _ in }
+        await bench.bringDevice(device("a"))
+        #expect(bench.session.runner?.plugin(channel: channel.id, effect: nil) != nil)
+        #expect(bench.session.startFailure == nil)
+        #expect(bench.opened.count == 3)
+    }
+
+    @Test("A device change with nothing wanted starts nothing")
+    func deviceChangeWithNothingWanted() async {
+        let bench = Bench()
+        defer { bench.session.close() }
+
+        await bench.bringDevice(device("b"))
+
+        #expect(bench.engine.state == .stopped)
+        #expect(bench.opened.isEmpty)
+        #expect(bench.session.runner == nil)
+    }
+
+    @Test("Closing ends the retries of a failed start")
+    func closeEndsTheRetries() async {
+        let bench = Bench()
+        bench.prepare = { $0.startError = StartFailed() }
+        await bench.session.open(configuration(instrumentChannel()), settings: .defaults)
+
+        bench.session.close()
+        bench.prepare = { _ in }
+        await bench.bringDevice(device("a"))
+
+        #expect(bench.engine.state == .stopped)
+        #expect(bench.opened.count == 1)
+        #expect(bench.session.runner == nil)
+    }
+
     // MARK: - Edits and MIDI
 
     @Test("An edit reaches the runner and leaves what plays alone")

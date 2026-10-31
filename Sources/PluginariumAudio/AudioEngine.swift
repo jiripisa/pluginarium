@@ -124,8 +124,8 @@ public final class AudioEngine {
     /// A device that is not there is not an error: `state` becomes `.deviceMissing`, and the device
     /// starts when it returns. Throws without touching what runs when the render core cannot take
     /// the settings. Throws with `state` at `.stopped` when the device fails, or when the default
-    /// output runs a buffer above `maxFrames`; a restart cannot throw, so it reports that device as
-    /// `.deviceMissing` and tries again at the next device change.
+    /// output runs a buffer above `maxFrames`, and tries again at the next device change. A restart
+    /// cannot throw, so it reports that device as `.deviceMissing` and does the same.
     public func start(settings: AppSettings) throws {
         guard settings.audioDeviceUID == nil || (settings.sampleRate > 0 && (1...Int(Self.maxFrames)).contains(settings.bufferFrames)) else {
             throw AudioEngineError.unsupportedSettings(sampleRate: settings.sampleRate, bufferFrames: settings.bufferFrames)
@@ -150,13 +150,15 @@ public final class AudioEngine {
         }
     }
 
-    /// Follows the system's device list: stops a device that left, and restarts one that came back
-    /// or whose channels changed. A wanted default output moves to the system's new default.
+    /// Follows the system's device list: stops a device that left, restarts one that came back or
+    /// whose channels changed, and tries a start that failed again. A wanted default output moves to
+    /// the system's new default.
     public func handleDeviceChange() {
         guard let lastSettings else { return }
         switch state {
         case .stopped:
-            return
+            // Only a failed start gets here, since `stop` forgets the settings.
+            restart(lastSettings)
         case .running(let device):
             if devices().first(where: { $0.id == device.id }) != device { restart(lastSettings) }
         case .deviceMissing:
