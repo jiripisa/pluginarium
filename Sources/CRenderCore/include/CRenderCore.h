@@ -44,18 +44,23 @@ void pr_engine_destroy(PREngine *engine);
 
 /// Copies its input and allocates all buffers; the arrays can be released on return.
 /// The new graph takes over at the start of the next render. Returns its generation, which
-/// increases by one per install, or UINT64_MAX when allocation fails and the running graph stays.
+/// increases by one per install.
+///
+/// Returns UINT64_MAX when allocation fails. Nothing was replaced: the previous graph stays, the
+/// caller keeps every unit, and the value must not be passed to pr_engine_is_generation_taken.
 ///
 /// A caller keeps every unit of a replaced graph alive until pr_engine_is_generation_taken
 /// returns true for the generation that replaced it.
 uint64_t pr_engine_install_graph(PREngine *engine, const PRStrip *strips, uint32_t count);
 
 /// True once a render has started a block with this generation or a newer one, so no render can
-/// still use an older graph. Always true while audio is not running, since no render is coming.
+/// still use an older graph. True for every generation while audio is not running, since no render
+/// is coming. Always false for UINT64_MAX, so misuse leaks units instead of disposing live ones.
 bool pr_engine_is_generation_taken(PREngine *engine, uint64_t generation);
 
-/// Tells the engine whether renders are coming. The default is false, for offline rendering.
-/// Set it true before the first render, and false only after the device has fully stopped.
+/// Tells the engine whether a render can run at the same time as a disposal. The default is false,
+/// which requires that no render runs concurrently with a disposal. Set it true before the first
+/// render, and false only after the device has fully stopped.
 void pr_engine_set_audio_running(PREngine *engine, bool running);
 
 /// Frees graphs the render thread has finished with.

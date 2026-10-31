@@ -620,6 +620,21 @@ struct RenderCoreTests {
         #expect(rig.isTaken(generation))
     }
 
+    @Test("The failed install value is never taken, running or not")
+    func failedInstallIsNeverTaken() {
+        let rig = Rig()
+        rig.install([])
+        #expect(!rig.isTaken(UInt64.max))
+
+        pr_engine_set_audio_running(rig.engine, true)
+        #expect(!rig.isTaken(UInt64.max))
+        _ = rig.render()
+        #expect(!rig.isTaken(UInt64.max))
+
+        pr_engine_set_audio_running(rig.engine, false)
+        #expect(!rig.isTaken(UInt64.max))
+    }
+
     @Test("A replaced unit can be disposed once its replacement is taken")
     func replacedUnitDisposedOnceTaken() async throws {
         let strip = { (plugin: HostedPlugin) in StripSpec(source: plugin, audioIn: PRChannels(left: 0, right: 1)) }

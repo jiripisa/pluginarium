@@ -360,7 +360,7 @@ void pr_graph_retire(PREngine *engine, PRGraph *graph) {
 
 uint64_t pr_engine_install_graph(PREngine *engine, const PRStrip *strips, uint32_t count) {
     PRGraph *graph = build_graph(engine, strips, count);
-    if (graph == NULL) return UINT64_MAX; // never taken while running, so the caller keeps its units
+    if (graph == NULL) return UINT64_MAX; // nothing was replaced: the previous graph stays
     graph->generation = ++engine->installedGeneration;
     engine->latest = graph;
     PRGraph *unused = atomic_exchange_explicit(&engine->pending, graph, memory_order_acq_rel);
@@ -369,6 +369,7 @@ uint64_t pr_engine_install_graph(PREngine *engine, const PRStrip *strips, uint32
 }
 
 bool pr_engine_is_generation_taken(PREngine *engine, uint64_t generation) {
+    if (generation == UINT64_MAX) return false; // a failed install: its units must never be disposed
     if (!atomic_load_explicit(&engine->audioRunning, memory_order_acquire)) return true;
     return atomic_load_explicit(&engine->takenGeneration, memory_order_acquire) >= generation;
 }
