@@ -130,7 +130,8 @@ static void add(float *dest, const float *source, uint32_t frames) {
     for (uint32_t i = 0; i < frames; i++) dest[i] += source[i];
 }
 
-static float peak_of(const float *samples, uint32_t frames, float peak) {
+static float peak_of(const float *samples, uint32_t frames) {
+    float peak = 0;
     for (uint32_t i = 0; i < frames; i++) {
         float level = fabsf(samples[i]);
         if (level > peak) peak = level;
@@ -138,11 +139,16 @@ static float peak_of(const float *samples, uint32_t frames, float peak) {
     return peak;
 }
 
-static void update_meters(PRStripNode *strip, float *const *signal, uint32_t offset, uint32_t frames) {
+/// Raises the stored peak, which pr_engine_read_meters takes and resets from the control thread.
+/// The compare-exchange loop keeps a read between the load and the store from losing the new peak.
+static void update_meters(PRStripNode *strip, float *const *signal, uint32_t frames) {
     for (uint32_t side = 0; side < PR_BUS_CHANNELS; side++) {
-        // A later chunk of the same block continues the peak of the earlier ones.
-        float peak = offset == 0 ? 0 : atomic_load_explicit(&strip->peak[side], memory_order_relaxed);
-        atomic_store_explicit(&strip->peak[side], peak_of(signal[side], frames, peak), memory_order_relaxed);
+        float peak = peak_of(signal[side], frames);
+        float stored = atomic_load_explicit(&strip->peak[side], memory_order_relaxed);
+        while (peak > stored &&
+               !atomic_compare_exchange_weak_explicit(&strip->peak[side], &stored, peak, memory_order_relaxed,
+                                                      memory_order_relaxed)) {
+        }
     }
 }
 
@@ -191,7 +197,7 @@ static void render_strip(PRStripNode *strip, uint32_t offset, uint32_t frames,
         rowOutput = swap;
     }
 
-    update_meters(strip, signal, offset, frames);
+    update_meters(strip, signal, frames);
     write_output(strip->audioOut, signal, out, outChannels, offset, frames);
 }
 

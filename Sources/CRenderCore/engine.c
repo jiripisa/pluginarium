@@ -126,8 +126,8 @@ void pr_engine_read_meters(PREngine *engine, uint32_t strip, float *left, float 
         *right = 0;
         return;
     }
-    *left = atomic_load_explicit(&graph->strips[strip].peak[0], memory_order_relaxed);
-    *right = atomic_load_explicit(&graph->strips[strip].peak[1], memory_order_relaxed);
+    *left = atomic_exchange_explicit(&graph->strips[strip].peak[0], 0, memory_order_relaxed);
+    *right = atomic_exchange_explicit(&graph->strips[strip].peak[1], 0, memory_order_relaxed);
 }
 
 void pr_load_update(PREngine *engine, uint64_t ticks, uint32_t frames) {

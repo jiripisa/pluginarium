@@ -256,16 +256,39 @@ struct RenderCoreTests {
         let meters = rig.meters(strip: 0)
         #expect(abs(meters.left - 0.25) < tolerance)
         #expect(abs(meters.right - 0.25) < tolerance)
+        // Reading takes the peak, so the next read starts over.
+        let next = rig.meters(strip: 0)
+        #expect(next.left == 0 && next.right == 0)
     }
 
-    @Test("Meters follow the last block, not the highest ever")
-    func metersFollowLastBlock() async throws {
+    @Test("Meters hold the peak until it is read")
+    func metersHoldPeakUntilRead() async throws {
         let rig = Rig()
         rig.install([StripSpec(source: try await instrument(), midiSlot: 0)])
         rig.press(slot: 0)
         _ = rig.render()
         pr_engine_push_midi(rig.engine, 0, 0x80, 60, 0)
         _ = rig.render()
+        let held = rig.meters(strip: 0)
+        #expect(abs(held.left - 0.25) < tolerance)
+        #expect(abs(held.right - 0.25) < tolerance)
+        let again = rig.meters(strip: 0)
+        #expect(again.left == 0 && again.right == 0)
+        _ = rig.render()
+        #expect(rig.meters(strip: 0).left == 0)
+    }
+
+    @Test("Meters hold the peak of an earlier chunk of a block")
+    func metersHoldPeakAcrossChunks() async throws {
+        let frames: UInt32 = 256
+        let rig = Rig(maxFrames: 64)
+        rig.install([StripSpec(source: try await gain(), audioIn: PRChannels(left: 0, right: -1))])
+        let ramp = (0..<Int(frames)).map { 0.8 * (1 - Float($0) / Float(frames)) }
+        _ = rig.render(frames: frames, input: [ramp])
+        let meters = rig.meters(strip: 0)
+        // The first sample is the highest: 0.8 through a gain of 0.5.
+        #expect(abs(meters.left - 0.4) < tolerance)
+        #expect(abs(meters.right - 0.4) < tolerance)
         #expect(rig.meters(strip: 0).left == 0)
     }
 

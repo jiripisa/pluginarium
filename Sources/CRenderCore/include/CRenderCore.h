@@ -90,7 +90,9 @@ void pr_engine_set_transport(PREngine *engine, double tempo, bool playing);
 /// plays will also see the rewind.
 void pr_engine_rewind_transport(PREngine *engine);
 
-/// Peak of the strip's last block in the newest installed graph; 0 for a strip that does not exist.
+/// The highest peak of the strip in the newest installed graph since the last read, which this
+/// resets, so a meter polled slower than the blocks still sees every peak. 0 for a strip that does
+/// not exist. Control thread only.
 void pr_engine_read_meters(PREngine *engine, uint32_t strip, float *left, float *right);
 
 /// Smoothed ratio of render time to block duration.

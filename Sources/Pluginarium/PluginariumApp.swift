@@ -21,6 +21,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.appearance = NSAppearance(named: .darkAqua)
+        #if DEBUG
+        // For looking at the mixer without clicking: --open "<configuration name>".
+        let arguments = CommandLine.arguments
+        if let flag = arguments.firstIndex(of: "--open"), arguments.indices.contains(flag + 1),
+           let configuration = model.configurations.first(where: { $0.name == arguments[flag + 1] }) {
+            model.load(configuration)
+        }
+        #endif
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -39,9 +47,7 @@ private struct RootView: View {
             case .start:
                 StartScreen(model: model)
             case .mixer:
-                PlaceholderScreen(title: mixerTitle) {
-                    Button("Settings") { model.showSettings() }.buttonStyle(.key)
-                }
+                MixerScreen(model: model)
             case .settings:
                 PlaceholderScreen(title: "Settings") {
                     Button("Back") { model.closeSettings() }.buttonStyle(.key)
@@ -49,15 +55,11 @@ private struct RootView: View {
             }
         }
         .focusEffectDisabled()
+        .choiceDialog(Binding(get: { model.dialog }, set: { model.dialog = $0 }))
         // The window adds the title bar to this, and its minimum is for the whole window.
         .frame(minWidth: 900, minHeight: 600 - titleBarHeight)
         .onGeometryChange(for: CGFloat.self, of: \.safeAreaInsets.top) { titleBarHeight = $0 }
         .preferredColorScheme(.dark)
-    }
-
-    private var mixerTitle: String {
-        guard let name = model.session?.configuration.name, !name.isEmpty else { return "New configuration" }
-        return name
     }
 }
 

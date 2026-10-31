@@ -89,6 +89,15 @@ public final class AudioEngine {
 
     public var dspLoad: Double { pr_engine_load(renderEngine) }
 
+    /// The highest peak of `strip` since the last read, as the render core keeps it, which this
+    /// resets. A strip that is not there reads zero.
+    public func readMeters(strip: UInt32) -> (left: Float, right: Float) {
+        var left: Float = 0
+        var right: Float = 0
+        pr_engine_read_meters(renderEngine, strip, &left, &right)
+        return (left, right)
+    }
+
     @ObservationIgnored var seams = Seams()
 
     private var runningSettings: DeviceSettings?

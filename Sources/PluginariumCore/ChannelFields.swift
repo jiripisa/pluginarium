@@ -23,4 +23,17 @@ public struct ChannelFields: Equatable, Sendable {
             self.init(midiIn: capabilities.acceptsMIDI, audioIn: true, sidechainIn: capabilities.hasSidechain)
         }
     }
+
+    /// Until the plugin's capabilities are known, the fields the channel already has values for.
+    public init(channel: Channel, capabilities: PluginCapabilities?) {
+        if let capabilities {
+            self.init(kind: channel.kind, capabilities: capabilities)
+        } else {
+            self.init(
+                midiIn: channel.midiIn != nil,
+                audioIn: channel.kind == .effect || channel.audioIn != nil,
+                sidechainIn: channel.sidechainIn != nil
+            )
+        }
+    }
 }

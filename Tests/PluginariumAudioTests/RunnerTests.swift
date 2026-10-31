@@ -256,7 +256,8 @@ struct RunnerTests {
         try await withRunner { runner, rig in
             let channel = instrumentChannel(effects: [[insert(unknownEffectID)]])
             await runner.apply(configuration(channel))
-            #expect(failureMessage(runner.status[channel.id])?.contains("not installed") == true)
+            // Named by what the owner sees, not by its codes.
+            #expect(failureMessage(runner.status[channel.id]) == "None is not installed on this Mac")
             try press(channel, runner, rig)
             expectLevel(rig.render()[0], 0.25)
         }
@@ -569,6 +570,30 @@ struct RunnerTests {
             await runner.apply(configuration(third, second))
             #expect(runner.midiSlot(channel: third.id) == 0)
             #expect(runner.midiSlot(channel: second.id) == 1)
+        }
+    }
+
+    // MARK: - Meter strips
+
+    @Test func meterStripFollowsTheChannelsInTheGraph() async throws {
+        try await withRunner(deviceOutputs: 4) { runner, rig in
+            let first = instrumentChannel(out: out01)
+            let beyond = instrumentChannel(out: out45)
+            let last = instrumentChannel(out: out23)
+            let missing = instrumentChannel(unknownInstrumentID, out: out01)
+            await runner.apply(configuration(first, beyond, missing, last))
+            #expect(runner.meterStrip(channel: first.id) == 0)
+            // Left out of the graph, so the channels after it shift down.
+            #expect(runner.meterStrip(channel: beyond.id) == nil)
+            #expect(runner.meterStrip(channel: missing.id) == nil)
+            #expect(runner.meterStrip(channel: last.id) == 1)
+            #expect(runner.meterStrip(channel: UUID()) == nil)
+
+            try press(last, runner, rig)
+            _ = rig.render()
+            let strip = try #require(runner.meterStrip(channel: last.id))
+            #expect(abs(rig.meters(strip: strip).left - 0.25) < tolerance)
+            #expect(rig.meters(strip: 0).left == 0)
         }
     }
 

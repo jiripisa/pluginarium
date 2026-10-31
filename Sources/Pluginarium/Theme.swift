@@ -13,6 +13,11 @@ extension Color {
     static let led = Color(hex: 0xFF8A1F)
     static let ledSoft = Color(hex: 0xFFB066)
     static let fault = Color(hex: 0xFF6A52)
+    static let ledOff = Color(hex: 0x4A4A46)
+    /// A standalone effect's channel.
+    static let panelEffect = Color(hex: 0x2E2C33)
+    /// A menu or dialog above the panel.
+    static let panelMenu = Color(hex: 0x222326)
     static let walnut = Color(hex: 0x6D4529)
     static let walnutDark = Color(hex: 0x553420)
 
@@ -70,14 +75,17 @@ struct KeyButtonStyle: ButtonStyle {
     private static let fontSize: CGFloat = 12.5
 
     var isPrimary = false
+    /// Takes the width it is offered, as a button does in a grid.
+    var stretches = false
 
     func makeBody(configuration: Configuration) -> some View {
-        KeyLabel(label: configuration.label, isPrimary: isPrimary, isPressed: configuration.isPressed)
+        KeyLabel(label: configuration.label, isPrimary: isPrimary, stretches: stretches, isPressed: configuration.isPressed)
     }
 
     private struct KeyLabel<Label: View>: View {
         let label: Label
         let isPrimary: Bool
+        let stretches: Bool
         let isPressed: Bool
 
         @Environment(\.isEnabled) private var isEnabled
@@ -89,7 +97,8 @@ struct KeyButtonStyle: ButtonStyle {
                 .panelSpacing(0.06, size: KeyButtonStyle.fontSize)
                 .textCase(.uppercase)
                 .lineLimit(1)
-                .fixedSize()
+                .fixedSize(horizontal: !stretches, vertical: true)
+                .frame(maxWidth: stretches ? .infinity : nil)
                 .frame(height: 16.25)
                 .foregroundStyle(isPrimary ? Color.panelDeep : Color.legend)
                 .padding(.vertical, 5)
@@ -110,6 +119,7 @@ struct KeyButtonStyle: ButtonStyle {
 
 extension ButtonStyle where Self == KeyButtonStyle {
     static var key: KeyButtonStyle { KeyButtonStyle() }
+    static var wideKey: KeyButtonStyle { KeyButtonStyle(stretches: true) }
 }
 
 /// `.legend`, the silk-screen label above a control.
@@ -132,13 +142,27 @@ struct Legend: View {
     }
 }
 
-/// `.led`.
+/// `.led`, `.led.off` and `.led.fault`.
 struct LED: View {
+    enum Tone {
+        case on, off, fault
+    }
+
+    var tone = Tone.on
+
     var body: some View {
         Circle()
-            .fill(Color.led)
+            .fill(color)
             .frame(width: 8, height: 8)
-            .shadow(color: .led, radius: 4)
+            .shadow(color: tone == .off ? .clear : color, radius: 4)
+    }
+
+    private var color: Color {
+        switch tone {
+        case .on: .led
+        case .off: .ledOff
+        case .fault: .fault
+        }
     }
 }
 

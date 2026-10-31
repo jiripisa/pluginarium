@@ -1,6 +1,7 @@
 import AudioToolbox
 import CRenderCore
 import Foundation
+import Observation
 import PluginariumCore
 import os
 
@@ -27,6 +28,7 @@ public enum ChannelStatus: Equatable, Sendable {
 /// until the render core has taken the generation that replaced it. The runner does not own the
 /// engine, and `shutDown` must run before the engine is destroyed.
 @MainActor
+@Observable
 public final class ConfigurationRunner {
 
     /// What the runner calls outside itself, so a test can hold a load open or fail an install.
@@ -155,6 +157,12 @@ public final class ConfigurationRunner {
     /// not accept MIDI or every slot is taken.
     public func midiSlot(channel: UUID) -> Int32? {
         midiSlots[channel]
+    }
+
+    /// The strip of `channel` in the installed graph, which `pr_engine_read_meters` takes. A channel
+    /// that is not in the graph has none, and the strips after it shift down.
+    public func meterStrip(channel: UUID) -> UInt32? {
+        installed.firstIndex { $0.channel == channel }.map { UInt32($0) }
     }
 
     /// Releases the retired plugins no render can reach and frees the graphs the render thread has
@@ -307,11 +315,17 @@ public final class ConfigurationRunner {
         if hosted[channel.id] == nil { return .loading }
         if notInstalled.contains(channel.id) { return .loadFailed("Not enough memory") }
         let effects = channel.effects.joined()
-        if let failure = effects.lazy.compactMap({ self.failures[$0.id] }).first {
-            return .loadFailed(failure.localizedDescription)
+        if let (effect, failure) = effects.lazy.compactMap({ effect in self.failures[effect.id].map { (effect, $0) } }).first {
+            return .loadFailed(Self.message(for: failure, in: effect.slot))
         }
         if effects.contains(where: { hosted[$0.id] == nil }) { return .loading }
         return builder.missingRoute(of: channel).map(ChannelStatus.routingUnavailable) ?? .ready
+    }
+
+    /// For the owner, so a plugin that is gone is named by its display name, not its codes.
+    private static func message(for failure: any Error, in slot: PluginSlot) -> String {
+        if case HostedPluginError.notFound = failure { return "\(slot.displayName) is not installed on this Mac" }
+        return failure.localizedDescription
     }
 
     private func capture(_ slot: inout PluginSlot, node: UUID) {

@@ -20,6 +20,8 @@ final class AppModel {
     var configurations: [Configuration]
     /// What is waiting behind the save question, once it has been answered.
     var pendingLeave: (() -> Void)?
+    /// The question on screen, which `RootView` shows over any screen.
+    var dialog: ChoiceDialog?
 
     private(set) var audio: AudioSession?
 
@@ -83,6 +85,40 @@ final class AppModel {
         }
         pendingLeave = action
     }
+
+    /// Asks before taking a channel out of the configuration.
+    func askToRemove(_ channel: Channel) {
+        let id = channel.id
+        dialog = .removeChannel(named: channel.slot.displayName) { [weak self] in
+            self?.edit { $0.channels.removeAll { $0.id == id } }
+        }
+    }
+
+    // MARK: - Stubs: the mixer shows these controls, and the tasks named here give them their actions.
+
+    /// Add column (Task 14).
+    func beginAddChannel() {}
+
+    /// Open plugin button of a channel or an effect (Task 14).
+    func togglePluginWindow(channel: UUID, effect: UUID?) {}
+
+    /// Preset selector of a channel or an effect (Task 14).
+    func showPresetMenu(channel: UUID, effect: UUID?) {}
+
+    /// Replace plugin button of a channel whose plugin is not installed (Task 14).
+    func beginReplacePlugin(channel: UUID) {}
+
+    /// Add effect slot of a channel (Task 15).
+    func beginAddEffect(channel: UUID) {}
+
+    /// An effect slot of a channel (Task 15).
+    func showEffectMenu(channel: UUID, effect: UUID) {}
+
+    /// Save button of the top bar (Task 16).
+    func saveCurrent() {}
+
+    /// Save as in the configuration menu (Task 16).
+    func beginSaveAs() {}
 
     func showSettings() {
         settingsReturn = screen
