@@ -16,7 +16,7 @@ final class AppModel {
 
     var screen = Screen.start {
         // A dialog belongs to the screen it was opened on.
-        didSet { if screen != oldValue { addTarget = nil } }
+        didSet { if screen != oldValue { closeAdd() } }
     }
     var session: EditingSession?
     var settings: AppSettings
@@ -25,8 +25,17 @@ final class AppModel {
     var pendingLeave: (() -> Void)?
     /// The question on screen, which `RootView` shows over any screen.
     var dialog: ChoiceDialog?
-    /// The Add dialog on screen, which `RootView` shows as a sheet.
-    var addTarget: AddTarget?
+    /// The Add dialog on screen, which `RootView` shows over any screen. It is made once when the
+    /// dialog opens and dropped when it closes, so no view can make a second one.
+    private(set) var addModel: AddModel?
+
+    /// Where the dialog on screen adds to; setting nil closes it.
+    var addTarget: AddTarget? {
+        get { addModel?.target }
+        set {
+            if let newValue { openAdd(newValue) } else { closeAdd() }
+        }
+    }
 
     private(set) var audio: AudioSession?
 
@@ -52,7 +61,7 @@ final class AppModel {
     }
 
     func load(_ configuration: Configuration) {
-        addTarget = nil
+        closeAdd()
         session = EditingSession(saved: configuration)
         screen = .mixer
         let audio = audioSession()
@@ -148,7 +157,7 @@ final class AppModel {
         probes.request(plugin, deliver: deliver)
     }
 
-    /// The Add dialog is gone or has nothing selected.
+    /// The Add dialog has nothing to probe: nothing is loaded for it until it selects again.
     func stopProbes() { probes.stop() }
 
     /// The routing a new channel of `kind` starts with.
@@ -157,17 +166,30 @@ final class AppModel {
         return AddRouting(defaults: defaultRouting(for: kind, in: configuration, settings: settings), kind: kind)
     }
 
+    private func openAdd(_ target: AddTarget) {
+        closeAdd()
+        addModel = AddModel(target: target, app: self)
+    }
+
+    /// Closes the dialog, if one is open, and stops its probes so nothing starts for it later.
+    func closeAdd() {
+        guard let model = addModel else { return }
+        addModel = nil
+        model.dismissed()
+        probes.stop()
+    }
+
     /// Add column of the mixer, and a new configuration.
-    func beginAddChannel() { addTarget = .channel }
+    func beginAddChannel() { openAdd(.channel) }
 
     /// Replace plugin button of a channel whose plugin is not installed.
-    func beginReplacePlugin(channel: UUID) { addTarget = .replace(channel: channel) }
+    func beginReplacePlugin(channel: UUID) { openAdd(.replace(channel: channel)) }
 
     /// Add effect slot of a channel.
-    func beginAddEffect(channel: UUID) { addTarget = .insert(channel: channel, row: nil) }
+    func beginAddEffect(channel: UUID) { openAdd(.insert(channel: channel, row: nil)) }
 
     /// Add next to the effects of a row, once the effect menu offers it (Task 15).
-    func beginAddParallelEffect(channel: UUID, row: Int) { addTarget = .insert(channel: channel, row: row) }
+    func beginAddParallelEffect(channel: UUID, row: Int) { openAdd(.insert(channel: channel, row: row)) }
 
     /// Puts the picked plugin where `target` says, and moves it to the front of the recent ones.
     func finishAdd(
@@ -194,7 +216,7 @@ final class AppModel {
         // A factory preset is only named here. Task 15 applies it to the running plugin.
         settings.recentPlugins = AddPicker.recent(adding: plugin.id, to: settings.recentPlugins)
         try? settingsStore.save(settings)
-        addTarget = nil
+        closeAdd()
     }
 
     // MARK: - Stubs: the mixer shows these controls, and the tasks named here give them their actions.

@@ -107,14 +107,12 @@ final class AddModel {
     }
 
     func cancel() {
-        isDone = true
-        app.addTarget = nil
+        app.closeAdd()
     }
 
-    /// The dialog went away, however that came about.
+    /// `AppModel.closeAdd` has taken the dialog away: nothing it was asked to do counts any more.
     func dismissed() {
         isDone = true
-        app.stopProbes()
     }
 
     // MARK: - Selection
@@ -161,16 +159,16 @@ extension View {
     /// Shows the Add dialog over the whole view while `AppModel.addTarget` is set.
     func addDialog(_ model: AppModel) -> some View {
         // The dialog is modal: what is under it can be neither reached with Tab nor read out.
-        disabled(model.addTarget != nil)
-        .accessibilityHidden(model.addTarget != nil)
+        disabled(model.addModel != nil)
+        .accessibilityHidden(model.addModel != nil)
         .overlay {
-            if let target = model.addTarget {
+            if let add = model.addModel {
                 ZStack {
                     Color.black.opacity(0.6)
                         .ignoresSafeArea()
                         .contentShape(Rectangle())
-                    AddSheet(target: target, app: model)
-                        .id(target.id)
+                    AddSheet(model: add)
+                        .id(ObjectIdentifier(add))
                         .environment(model)
                 }
             }
@@ -180,12 +178,11 @@ extension View {
 
 /// `dialog.wide`: 640 pt wide, with the search focused so a few letters and Return are enough.
 struct AddSheet: View {
-    @State private var model: AddModel
-    @FocusState private var searchFocused: Bool
+    /// Made by `AppModel` when the dialog opens. The view only shows it, so re-evaluating the view
+    /// cannot make another one.
+    @Bindable var model: AddModel
 
-    init(target: AddTarget, app: AppModel) {
-        _model = State(initialValue: AddModel(target: target, app: app))
-    }
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -209,7 +206,6 @@ struct AddSheet: View {
         .shadow(color: .black.opacity(0.65), radius: 30, y: 20)
         .accessibilityAddTraits(.isModal)
         .onAppear { searchFocused = true }
-        .onDisappear { model.dismissed() }
     }
 
     private var tabs: some View {
