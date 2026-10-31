@@ -95,6 +95,7 @@ struct PREngine {
     _Atomic(double) tempo;
     _Atomic(bool) playing;
     _Atomic(bool) transportChanged;
+    _Atomic(bool) rewindRequested;
     _Atomic(double) beat;
     _Atomic(double) timelineSample;
     _Atomic(double) load;

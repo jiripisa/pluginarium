@@ -89,12 +89,22 @@ void pr_midi_drain(PREngine *engine, const PRGraph *graph) {
 
 void pr_engine_set_transport(PREngine *engine, double tempo, bool playing) {
     if (tempo > 0) atomic_store_explicit(&engine->tempo, tempo, memory_order_relaxed);
-    atomic_store_explicit(&engine->playing, playing, memory_order_relaxed);
+    atomic_store_explicit(&engine->playing, playing, memory_order_release);
+}
+
+void pr_engine_rewind_transport(PREngine *engine) {
+    atomic_store_explicit(&engine->rewindRequested, true, memory_order_release);
 }
 
 void pr_transport_begin_block(PREngine *engine) {
-    bool playing = atomic_load_explicit(&engine->playing, memory_order_relaxed);
-    atomic_store_explicit(&engine->transportChanged, playing != engine->wasPlaying, memory_order_relaxed);
+    // Acquire, so that a block that sees a start playing also sees the rewind called before it.
+    bool playing = atomic_load_explicit(&engine->playing, memory_order_acquire);
+    bool rewind = atomic_exchange_explicit(&engine->rewindRequested, false, memory_order_acquire);
+    if (rewind) {
+        atomic_store_explicit(&engine->beat, 0, memory_order_relaxed);
+        atomic_store_explicit(&engine->timelineSample, 0, memory_order_relaxed);
+    }
+    atomic_store_explicit(&engine->transportChanged, rewind || playing != engine->wasPlaying, memory_order_relaxed);
     engine->wasPlaying = playing;
 }
 

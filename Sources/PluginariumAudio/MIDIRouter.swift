@@ -174,6 +174,7 @@ private final class MIDIRouting: Sendable {
                 state.tracker.receive(event, at: seconds)
                 state.reading = state.tracker.reading
                 state.tempo = state.reading.tempo ?? state.tempo
+                if state.reading.justStarted { pr_engine_rewind_transport(engine) }
                 pr_engine_set_transport(engine, state.tempo, state.reading.isPlaying)
             }
         }

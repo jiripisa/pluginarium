@@ -110,6 +110,38 @@ import Testing
         #expect(!reading.isClockRunning(at: 5))
     }
 
+    @Test func onlyTheEventRightAfterAStartReadsAsJustStarted() {
+        var tracker = ClockTracker()
+        #expect(!tracker.reading.justStarted)
+        tracker.receive(.start, at: 0)
+        #expect(tracker.reading.justStarted)
+        tracker.receive(.clock, at: 0.02)
+        #expect(!tracker.reading.justStarted)
+    }
+
+    @Test func aContinueIsNotAStart() {
+        var tracker = ClockTracker()
+        tracker.receive(.stop, at: 0)
+        tracker.receive(.resume, at: 1)
+        #expect(tracker.isPlaying)
+        #expect(!tracker.reading.justStarted)
+    }
+
+    @Test func aStartWhilePlayingStartsAgain() {
+        var tracker = ClockTracker()
+        tracker.receive(.start, at: 0)
+        tracker.receive(.clock, at: 0.02)
+        tracker.receive(.start, at: 0.04)
+        #expect(tracker.reading.justStarted)
+    }
+
+    @Test func aStopAfterAStartClearsIt() {
+        var tracker = ClockTracker()
+        tracker.receive(.start, at: 0)
+        tracker.receive(.stop, at: 1)
+        #expect(!tracker.reading.justStarted)
+    }
+
     @Test func channelVoiceEventsAreIgnored() {
         var tracker = ClockTracker()
         tracker.receive(.channelVoice(status: 0x90, data1: 60, data2: 100), at: 0)

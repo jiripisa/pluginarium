@@ -11,7 +11,7 @@
 // - pr_engine_render runs on the audio thread and never allocates, locks or blocks. So does the
 //   render callback of a PRDeviceLink, which calls it.
 // - pr_engine_push_midi takes one producer thread per slot.
-// - pr_engine_set_transport can be called from any thread.
+// - pr_engine_set_transport and pr_engine_rewind_transport can be called from any thread.
 // - Everything else belongs to one control thread, the main thread in the app.
 
 /// Device channels. left == -1: off. right == -1: mono.
@@ -83,6 +83,12 @@ void pr_engine_push_midi(PREngine *engine, int32_t slot, uint8_t status, uint8_t
 
 /// A tempo that is not positive keeps the last one. The default is 120 BPM, stopped.
 void pr_engine_set_transport(PREngine *engine, double tempo, bool playing);
+
+/// Takes beat and timeline sample back to zero on the render thread, at the start of the next
+/// block, which tells units the transport changed. Playing or stopped stays as it is. To start
+/// from zero, call this before the pr_engine_set_transport that starts playing, and a block that
+/// plays will also see the rewind.
+void pr_engine_rewind_transport(PREngine *engine);
 
 /// Peak of the strip's last block in the newest installed graph; 0 for a strip that does not exist.
 void pr_engine_read_meters(PREngine *engine, uint32_t strip, float *left, float *right);

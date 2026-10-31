@@ -574,6 +574,46 @@ struct RenderCoreTests {
         expectLevel(rig.render()[0], 0.12)
     }
 
+    @Test("A rewind waits for the render thread, and the next block starts from zero")
+    func rewindTakesEffectAtTheNextBlock() async throws {
+        let plugin = try await loadPlugin(type: "aumu", subtype: "PlTp")
+        let rig = Rig()
+        #expect(pr_install_host_callbacks(plugin.audioUnit, rig.engine) == noErr)
+        rig.install([StripSpec(source: plugin)])
+        pr_engine_set_transport(rig.engine, 120, true)
+        for _ in 0..<100 { _ = rig.render() }
+
+        pr_engine_rewind_transport(rig.engine)
+        #expect(try transport(of: rig).sample == Double(blockFrames) * 100)
+
+        expectLevel(rig.render()[1], 0)
+        let rewound = try transport(of: rig)
+        #expect(rewound.sample == Double(blockFrames))
+        #expect(rewound.changed == true)
+
+        expectLevel(rig.render()[1], Float(blockFrames) * 2 / Float(sampleRate))
+        #expect(try transport(of: rig).changed == false)
+    }
+
+    @Test("A rewind while stopped leaves the next start at zero")
+    func rewindWhileStopped() async throws {
+        let plugin = try await loadPlugin(type: "aumu", subtype: "PlTp")
+        let rig = Rig()
+        #expect(pr_install_host_callbacks(plugin.audioUnit, rig.engine) == noErr)
+        rig.install([StripSpec(source: plugin)])
+        pr_engine_set_transport(rig.engine, 120, true)
+        for _ in 0..<100 { _ = rig.render() }
+        pr_engine_set_transport(rig.engine, 120, false)
+        _ = rig.render()
+
+        pr_engine_rewind_transport(rig.engine)
+        expectLevel(rig.render()[1], -1)
+        #expect(try transport(of: rig).sample == 0)
+
+        pr_engine_set_transport(rig.engine, 120, true)
+        expectLevel(rig.render()[1], 0)
+    }
+
     @Test("The legacy transport callback reports the same state as the current one")
     func legacyTransportCallback() throws {
         let rig = Rig()
@@ -608,6 +648,15 @@ struct RenderCoreTests {
         #expect(state.legacy == state.current)
         #expect(state.legacy == TransportReading(playing: false, changed: true, sample: Double(blockFrames) * 2, cycling: false, cycleStart: 0, cycleEnd: 0))
     }
+}
+
+/// What a unit reads between blocks. Rendering nothing, it cannot move the transport itself.
+private func transport(of rig: Rig) throws -> TransportReading {
+    let info = pr_host_callback_info(rig.engine)
+    let read = try #require(info.transportStateProc)
+    var state = TransportReading()
+    #expect(read(info.hostUserData, &state.playing, &state.changed, &state.sample, &state.cycling, &state.cycleStart, &state.cycleEnd) == noErr)
+    return state
 }
 
 /// Starts from values the expected states contradict, so a field left unwritten fails the test.

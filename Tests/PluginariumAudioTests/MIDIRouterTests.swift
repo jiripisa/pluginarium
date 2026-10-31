@@ -12,6 +12,8 @@ private let noteOnChannel1 = MIDIEvent.channelVoice(status: 0x90, data1: 60, dat
 private let noteOnUMP: UInt32 = 0x2090_3C64
 private let noteOffUMP: UInt32 = 0x2080_3C00
 private let clockUMP: UInt32 = 0x10F8_0000
+/// At the default 120 BPM.
+private let beatsPerBlock = Float(blockFrames) * 2 / Float(sampleRate)
 
 private func target(_ source: String, _ channel: MIDIChannelFilter, slot: Int32) -> MIDIRouteTarget {
     MIDIRouteTarget(route: MIDIRoute(sourceName: source, channel: channel), slot: slot)
@@ -192,6 +194,61 @@ struct MIDIRouterTests {
             expectLevel(rig.render()[1], -1)
             router.handle(.resume, fromSource: "A", at: 0)
             #expect(rig.render()[1][0] > 0)
+        }
+    }
+
+    @Test func startAfterStopPlaysFromTheTop() async throws {
+        try await withRouter(try await tempoReporter()) { router, rig in
+            router.setClockSource("A")
+            router.handle(.start, fromSource: "A", at: 0)
+            for _ in 0..<100 { _ = rig.render() }
+            router.handle(.stop, fromSource: "A", at: 1)
+            expectLevel(rig.render()[1], -1)
+            router.handle(.start, fromSource: "A", at: 2)
+            expectLevel(rig.render()[1], 0)
+            expectLevel(rig.render()[1], beatsPerBlock)
+        }
+    }
+
+    @Test func continueAfterStopKeepsThePosition() async throws {
+        try await withRouter(try await tempoReporter()) { router, rig in
+            router.setClockSource("A")
+            router.handle(.start, fromSource: "A", at: 0)
+            for _ in 0..<100 { _ = rig.render() }
+            router.handle(.stop, fromSource: "A", at: 1)
+            expectLevel(rig.render()[1], -1)
+            router.handle(.resume, fromSource: "A", at: 2)
+            expectLevel(rig.render()[1], 100 * beatsPerBlock)
+        }
+    }
+
+    @Test func startWhilePlayingPlaysFromTheTop() async throws {
+        try await withRouter(try await tempoReporter()) { router, rig in
+            router.setClockSource("A")
+            router.handle(.start, fromSource: "A", at: 0)
+            for _ in 0..<100 { _ = rig.render() }
+            router.handle(.start, fromSource: "A", at: 1)
+            expectLevel(rig.render()[1], 0)
+        }
+    }
+
+    @Test func aTickAfterAStartDoesNotRewindAgain() async throws {
+        try await withRouter(try await tempoReporter()) { router, rig in
+            router.setClockSource("A")
+            router.handle(.start, fromSource: "A", at: 0)
+            for _ in 0..<100 { _ = rig.render() }
+            router.handle(.clock, fromSource: "A", at: 0.5)
+            expectLevel(rig.render()[1], 100 * beatsPerBlock)
+        }
+    }
+
+    @Test func startFromOtherSourceDoesNotRewind() async throws {
+        try await withRouter(try await tempoReporter()) { router, rig in
+            router.setClockSource("A")
+            router.handle(.start, fromSource: "A", at: 0)
+            for _ in 0..<100 { _ = rig.render() }
+            router.handle(.start, fromSource: "B", at: 1)
+            expectLevel(rig.render()[1], 100 * beatsPerBlock)
         }
     }
 

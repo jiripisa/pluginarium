@@ -13,12 +13,14 @@ public struct ClockTracker: Sendable {
     private var nextSlot = 0
     private var lastTickTime: Double?
     private var lastTempo: Double?
+    private var justStarted = false
 
     public private(set) var isPlaying = false
 
     public init() {}
 
     public mutating func receive(_ event: MIDIEvent, at seconds: Double) {
+        justStarted = event == .start
         switch event {
         case .clock: receiveTick(at: seconds)
         case .start, .resume: isPlaying = true
@@ -38,7 +40,7 @@ public struct ClockTracker: Sendable {
 
     /// A copy of what the tracker knows, for a thread that does not own it.
     public var reading: Reading {
-        Reading(tempo: lastTempo, isPlaying: isPlaying, lastTickTime: lastTickTime)
+        Reading(tempo: lastTempo, isPlaying: isPlaying, justStarted: justStarted, lastTickTime: lastTickTime)
     }
 
     /// Plain values, so taking one shares nothing with the tracker and its next tick still does not
@@ -47,11 +49,15 @@ public struct ClockTracker: Sendable {
         /// Nil until two ticks have given a tempo.
         public let tempo: Double?
         public let isPlaying: Bool
+        /// True when the last event was a start, which plays from the top, even while playing. A
+        /// continue plays on from where it stopped.
+        public let justStarted: Bool
         private let lastTickTime: Double?
 
-        fileprivate init(tempo: Double?, isPlaying: Bool, lastTickTime: Double?) {
+        fileprivate init(tempo: Double?, isPlaying: Bool, justStarted: Bool, lastTickTime: Double?) {
             self.tempo = tempo
             self.isPlaying = isPlaying
+            self.justStarted = justStarted
             self.lastTickTime = lastTickTime
         }
 
