@@ -20,6 +20,8 @@ private let registration: Void = {
     register(TestSidechain.self, type: code("aufx"), subtype: "PlSc", name: "Test Sidechain")
     register(TestVoice.self, type: code("aumf"), subtype: "PlVo", name: "Test Voice")
     register(TestBroken.self, type: code("aufx"), subtype: "PlBd", name: "Test Broken")
+    register(TestTempo.self, type: code("aumu"), subtype: "PlTp", name: "Test Tempo")
+    register(TestNullPull.self, type: code("aufx"), subtype: "PlNl", name: "Test Null Pull")
 }()
 
 private func code(_ string: String) -> OSType {
@@ -161,6 +163,26 @@ private final class TestInstrument: TestUnit {
     }
 }
 
+/// aumu/PlTp/Plug: reports what the host tells it. The first output is tempo ÷ 1000, the second
+/// is the beat position while the transport moves and -1 while it is stopped.
+private final class TestTempo: TestUnit {
+    override var internalRenderBlock: AUInternalRenderBlock {
+        return { [unowned self] _, _, frames, _, output, _, _ in
+            var tempo = 0.0
+            var beat = 0.0
+            _ = musicalContextBlock?(&tempo, nil, nil, &beat, nil, nil)
+            var flags = AUHostTransportStateFlags()
+            _ = transportStateBlock?(&flags, nil, nil, nil)
+            let values = [Float(tempo / 1000), flags.contains(.moving) ? Float(beat) : -1]
+            for (channel, buffer) in UnsafeMutableAudioBufferListPointer(output).enumerated() {
+                guard channel < values.count, let data = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
+                for frame in 0..<Int(frames) { data[frame] = values[channel] }
+            }
+            return noErr
+        }
+    }
+}
+
 /// aufx/PlFx/Plug: input × 0.5.
 private final class TestGain: TestUnit {
     override class var inputBusNames: [String] { ["Input"] }
@@ -169,6 +191,31 @@ private final class TestGain: TestUnit {
         return { [unowned self] flags, timestamp, frames, _, output, _, pullBlock in
             let main = pull(scratch, bus: 0, frames: frames, flags: flags, timestamp: timestamp, pullBlock: pullBlock)
             mix(out: UnsafeMutableAudioBufferListPointer(output), frames: Int(frames), main: main, mainGain: 0.5, side: nil, sideGain: 0)
+            return noErr
+        }
+    }
+}
+
+/// aufx/PlNl/Plug: input × 0.5, pulling with null buffers the way many version 2 units do, then
+/// overwriting what it was handed the way an in-place unit may.
+private final class TestNullPull: TestUnit {
+    override class var inputBusNames: [String] { ["Input"] }
+
+    override var internalRenderBlock: AUInternalRenderBlock {
+        return { flags, timestamp, frames, _, output, _, pullBlock in
+            let input = AudioBufferList.allocate(maximumBuffers: 2)
+            defer { input.unsafeMutablePointer.deallocate() }
+            for index in 0..<input.count {
+                input[index] = AudioBuffer(mNumberChannels: 1, mDataByteSize: 0, mData: nil)
+            }
+            guard let pullBlock, pullBlock(flags, timestamp, frames, 0, input.unsafeMutablePointer) == noErr else {
+                return kAudioUnitErr_NoConnection
+            }
+            mix(out: UnsafeMutableAudioBufferListPointer(output), frames: Int(frames), main: input, mainGain: 0.5, side: nil, sideGain: 0)
+            for buffer in input {
+                guard let data = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
+                for frame in 0..<Int(frames) { data[frame] = 9 }
+            }
             return noErr
         }
     }
