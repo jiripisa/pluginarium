@@ -44,6 +44,52 @@ struct SaveFlowTests {
     }
 }
 
+struct SavePreparationTests {
+    private let changed = Data([9])
+
+    private func session() -> EditingSession {
+        EditingSession(saved: .fixture(name: "Night rig", channels: [.fixture()]))
+    }
+
+    @Test func aSoundNotedBeforeTheCaptureSurvivesIntoTheSavedConfiguration() throws {
+        var held = session()
+        let prepared = try #require(
+            SaveFlow.prepare(
+                session: { held },
+                noteChanges: {
+                    // What a plugin window does when it is read: the session takes the changed sound.
+                    held.edit { $0.channels[0].slot.takeChangedSound(changed) }
+                },
+                capture: { ($0, []) }, name: nil, asCopy: false))
+        #expect(prepared.configuration.channels[0].slot.state == changed)
+        #expect(prepared.configuration.channels[0].slot.isCustomSound)
+    }
+
+    @Test func theCaptureSeesWhatWasNoted() throws {
+        var held = session()
+        var seen: Configuration?
+        _ = SaveFlow.prepare(
+            session: { held }, noteChanges: { held.edit { $0.name = "Noted" } },
+            capture: { seen = $0; return ($0, []) }, name: nil, asCopy: false)
+        #expect(seen?.name == "Noted")
+    }
+
+    @Test func aNameIsGivenAndACopyGetsANewId() throws {
+        let held = session()
+        let prepared = try #require(
+            SaveFlow.prepare(session: { held }, noteChanges: {}, capture: { ($0, ["Delay"]) }, name: "  Copy  ", asCopy: true))
+        #expect(prepared.configuration.name == "Copy")
+        #expect(prepared.configuration.id != held.configuration.id)
+        #expect(prepared.unreadable == ["Delay"])
+    }
+
+    @Test func anEmptyNameOrNoSessionPreparesNothing() {
+        let held = session()
+        #expect(SaveFlow.prepare(session: { held }, noteChanges: {}, capture: { ($0, []) }, name: " ", asCopy: false) == nil)
+        #expect(SaveFlow.prepare(session: { nil }, noteChanges: {}, capture: { ($0, []) }, name: nil, asCopy: false) == nil)
+    }
+}
+
 struct SettingsOptionsTests {
     private let devices = [
         DeviceChoice(id: "uid-b", name: "Beta"), DeviceChoice(id: "uid-a", name: "alpha"),

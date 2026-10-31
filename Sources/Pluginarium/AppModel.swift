@@ -171,31 +171,28 @@ final class AppModel {
     /// when the file cannot be written.
     @discardableResult
     private func write(name: String? = nil, asCopy: Bool = false) -> Bool {
-        guard var session else { return false }
-        let givenName: String?
-        if let name {
-            guard let trimmed = SaveFlow.name(from: name) else { return false }
-            givenName = trimmed
-        } else {
-            givenName = nil
-        }
-        pluginWindows.noteChanges()
-        let held = audio?.captureState(of: session.configuration) ?? .init(configuration: session.configuration, unreadable: [])
-        var configuration = held.configuration
-        if let givenName { configuration.name = givenName }
-        if asCopy { configuration = SaveFlow.copy(of: configuration, named: configuration.name) }
+        // Looking at the plugin windows edits the session, so the session is read after that.
+        guard let prepared = SaveFlow.prepare(
+            session: { self.session }, noteChanges: { self.pluginWindows.noteChanges() },
+            capture: { configuration in
+                let held = self.audio?.captureState(of: configuration) ?? .init(configuration: configuration, unreadable: [])
+                return (held.configuration, held.unreadable)
+            }, name: name, asCopy: asCopy)
+        else { return false }
+        let configuration = prepared.configuration
         do {
             try configurationStore.save(configuration)
         } catch {
             report(SaveFlow.failureNotice(name: configuration.name), error)
             return false
         }
+        guard var session else { return false }
         session.configuration = configuration
         session.markSaved()
         self.session = session
         configurations = configurationStore.loadAll()
         // A sound that could not be read still saves, so this says so instead of the plain message.
-        show(SaveFlow.unreadableNotice(held.unreadable) ?? SaveFlow.savedNotice(name: configuration.name))
+        show(SaveFlow.unreadableNotice(prepared.unreadable) ?? SaveFlow.savedNotice(name: configuration.name))
         return true
     }
 

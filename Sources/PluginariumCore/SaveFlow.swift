@@ -41,4 +41,32 @@ public enum SaveFlow {
     public static func failureNotice(name: String) -> String { "\(name) could not be saved" }
 
     public static func savedNotice(name: String) -> String { "\(name) saved" }
+
+    /// What a save writes.
+    public struct Prepared {
+        public var configuration: Configuration
+        /// The plugins whose state could not be read; they keep the state they had.
+        public var unreadable: [String]
+    }
+
+    /// The configuration to write. `noteChanges` runs before the session is read, because noting a
+    /// changed sound edits the session, and the capture has to see that edit. Nil when there is no
+    /// session or the name given is empty.
+    public static func prepare(
+        session: () -> EditingSession?, noteChanges: () -> Void, capture: (Configuration) -> (configuration: Configuration, unreadable: [String]),
+        name: String?, asCopy: Bool
+    ) -> Prepared? {
+        var givenName: String?
+        if let name {
+            guard let trimmed = Self.name(from: name) else { return nil }
+            givenName = trimmed
+        }
+        noteChanges()
+        guard let session = session() else { return nil }
+        let captured = capture(session.configuration)
+        var configuration = captured.configuration
+        if let givenName { configuration.name = givenName }
+        if asCopy { configuration = copy(of: configuration, named: configuration.name) }
+        return Prepared(configuration: configuration, unreadable: captured.unreadable)
+    }
 }
