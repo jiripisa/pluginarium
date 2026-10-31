@@ -44,6 +44,7 @@ private struct ChoiceDialogPresenter: ViewModifier {
     func body(content: Content) -> some View {
         content
             .disabled(dialog != nil)
+            .accessibilityHidden(dialog != nil)
             .overlay {
                 if let dialog {
                     ZStack {

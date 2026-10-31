@@ -25,9 +25,6 @@ enum AddTarget: Equatable, Identifiable {
 @MainActor
 @Observable
 final class AddModel {
-    /// A plugin is probed this long after the selection settles, so arrowing through the list does not load them all.
-    private static let probeDelay = Duration.milliseconds(300)
-
     let target: AddTarget
     let title: String
     let plugins: [PluginInfo]
@@ -50,7 +47,6 @@ final class AddModel {
     private(set) var savedPresets: [Preset] = []
 
     @ObservationIgnored private let app: AppModel
-    @ObservationIgnored private var probeTask: Task<Void, Never>?
     @ObservationIgnored private var isDone = false
 
     init(target: AddTarget, app: AppModel) {
@@ -107,14 +103,18 @@ final class AddModel {
     func accept() {
         guard !isDone, let plugin = selectedPlugin else { return }
         isDone = true
-        probeTask?.cancel()
         app.finishAdd(target, plugin: plugin, preset: preset, routing: routing, capabilities: capabilities)
     }
 
     func cancel() {
         isDone = true
-        probeTask?.cancel()
         app.addTarget = nil
+    }
+
+    /// The dialog went away, however that came about.
+    func dismissed() {
+        isDone = true
+        app.stopProbes()
     }
 
     // MARK: - Selection
@@ -127,8 +127,8 @@ final class AddModel {
     private func select(_ plugin: PluginID?) {
         selected = plugin
         preset = .defaultSound
-        probeTask?.cancel()
         guard let plugin else {
+            app.stopProbes()
             capabilities = nil
             factoryPresets = nil
             savedPresets = []
@@ -139,30 +139,31 @@ final class AddModel {
         factoryPresets = app.knownFactoryPresets(of: plugin)
         savedPresets = app.savedPresets(for: plugin)
         isProbing = capabilities == nil || factoryPresets == nil
-        if isProbing { probe(plugin) }
+        if isProbing {
+            app.requestProbe(plugin) { [weak self] plugin, result in self?.probed(plugin, result) }
+        } else {
+            app.stopProbes()
+        }
     }
 
-    /// Loads the plugin in the background, once the selection has rested. If it cannot be loaded,
-    /// what is unknown stays unknown.
-    private func probe(_ plugin: PluginID) {
-        probeTask = Task { [weak self] in
-            try? await Task.sleep(for: Self.probeDelay)
-            guard !Task.isCancelled, let app = self?.app else { return }
-            let result = await app.probe(plugin)
-            guard !Task.isCancelled, let self, selected == plugin else { return }
-            if let result {
-                capabilities = result.capabilities
-                factoryPresets = result.factoryPresets
-            }
-            isProbing = false
+    /// What a plugin loaded in the background said. If it could not be loaded, what is unknown stays unknown.
+    private func probed(_ plugin: PluginID, _ result: ProbeResult?) {
+        guard selected == plugin else { return }
+        if let result {
+            capabilities = result.capabilities
+            factoryPresets = result.factoryPresets
         }
+        isProbing = false
     }
 }
 
 extension View {
     /// Shows the Add dialog over the whole view while `AppModel.addTarget` is set.
     func addDialog(_ model: AppModel) -> some View {
-        overlay {
+        // The dialog is modal: what is under it can be neither reached with Tab nor read out.
+        disabled(model.addTarget != nil)
+        .accessibilityHidden(model.addTarget != nil)
+        .overlay {
             if let target = model.addTarget {
                 ZStack {
                     Color.black.opacity(0.6)
@@ -208,6 +209,7 @@ struct AddSheet: View {
         .shadow(color: .black.opacity(0.65), radius: 30, y: 20)
         .accessibilityAddTraits(.isModal)
         .onAppear { searchFocused = true }
+        .onDisappear { model.dismissed() }
     }
 
     private var tabs: some View {

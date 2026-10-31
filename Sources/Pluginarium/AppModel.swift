@@ -14,7 +14,10 @@ final class AppModel {
         case start, mixer, settings
     }
 
-    var screen = Screen.start
+    var screen = Screen.start {
+        // A dialog belongs to the screen it was opened on.
+        didSet { if screen != oldValue { addTarget = nil } }
+    }
     var session: EditingSession?
     var settings: AppSettings
     var configurations: [Configuration]
@@ -32,6 +35,10 @@ final class AppModel {
     @ObservationIgnored private let presetStore: PresetStore
     @ObservationIgnored private let settingsStore: SettingsStore
     @ObservationIgnored private var installed: [PluginInfo]?
+    /// Probes for the Add dialog: one load at a time, and a plugin that failed is not loaded again.
+    @ObservationIgnored private lazy var probes = ProbeScheduler<ProbeResult>(delay: .milliseconds(300)) { [weak self] plugin in
+        await self?.probe(plugin)
+    }
     @ObservationIgnored private var settingsReturn = Screen.start
 
     init(base: URL = AppPaths.base()) {
@@ -45,6 +52,7 @@ final class AppModel {
     }
 
     func load(_ configuration: Configuration) {
+        addTarget = nil
         session = EditingSession(saved: configuration)
         screen = .mixer
         let audio = audioSession()
@@ -134,6 +142,14 @@ final class AppModel {
         cache.store(result.capabilities, factoryPresets: result.factoryPresets, for: plugin)
         return result
     }
+
+    /// Probes `plugin` for the Add dialog once the selection has rested; `deliver` gets nil if it cannot be loaded.
+    func requestProbe(_ plugin: PluginID, deliver: @escaping ProbeScheduler<ProbeResult>.Deliver) {
+        probes.request(plugin, deliver: deliver)
+    }
+
+    /// The Add dialog is gone or has nothing selected.
+    func stopProbes() { probes.stop() }
 
     /// The routing a new channel of `kind` starts with.
     func newRouting(for kind: PluginKind) -> AddRouting {
