@@ -12,6 +12,7 @@ struct PluginariumApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1280, height: 760)
+        .commands { AppCommands(model: delegate.model) }
     }
 }
 
@@ -40,8 +41,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
     }
 
+    /// Unsaved changes are asked about before the app goes. The answer comes through the dialog in the
+    /// window, so the window is brought forward for it.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if model.askBeforeQuitting(reply: { NSApp.reply(toApplicationShouldTerminate: $0) }) { return .terminateNow }
+        NSApp.activate()
+        NSApp.windows.first { $0.title == "Pluginarium" }?.makeKeyAndOrderFront(nil)
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         model.close()
+    }
+}
+
+/// New configuration, Save and Save as in the File menu, and Settings in the app menu. They are off
+/// while a question is open and where they do not apply.
+private struct AppCommands: Commands {
+    let model: AppModel
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New configuration") { model.leave { model.newConfiguration() } }
+                .disabled(!model.commandsAvailable)
+        }
+        CommandGroup(replacing: .saveItem) {
+            Button("Save") { model.saveCurrent() }
+                .keyboardShortcut("s")
+                .disabled(!model.commandsAvailable || model.session?.isDirty != true)
+            Button("Save as") { model.beginSaveAs() }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(!model.commandsAvailable || model.session == nil)
+        }
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") { model.showSettings() }
+                .keyboardShortcut(",")
+                .disabled(!model.commandsAvailable)
+        }
     }
 }
 
@@ -58,9 +94,7 @@ private struct RootView: View {
             case .mixer:
                 MixerScreen(model: model)
             case .settings:
-                PlaceholderScreen(title: "Settings") {
-                    Button("Back") { model.closeSettings() }.buttonStyle(.key)
-                }
+                SettingsScreen(model: model)
             }
         }
         .focusEffectDisabled()
@@ -74,22 +108,5 @@ private struct RootView: View {
         .frame(minWidth: 900, minHeight: 600 - titleBarHeight)
         .onGeometryChange(for: CGFloat.self, of: \.safeAreaInsets.top) { titleBarHeight = $0 }
         .preferredColorScheme(.dark)
-    }
-}
-
-/// Stands in for the screens that come later.
-private struct PlaceholderScreen<Action: View>: View {
-    let title: String
-    @ViewBuilder let action: Action
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Text(title)
-                .font(.panelDisplay(27))
-                .panelSpacing(0.05, size: 27)
-                .textCase(.uppercase)
-                .foregroundStyle(Color.legend)
-            action
-        }
     }
 }

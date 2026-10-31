@@ -30,8 +30,6 @@ final class AppModel {
     var session: EditingSession?
     var settings: AppSettings
     var configurations: [Configuration]
-    /// What is waiting behind the save question, once it has been answered.
-    var pendingLeave: (() -> Void)?
     /// The question on screen, which `RootView` shows over any screen.
     var dialog: ChoiceDialog?
     /// The name being asked for, which `RootView` shows over any screen.
@@ -63,6 +61,11 @@ final class AppModel {
     }
 
     private(set) var audio: AudioSession?
+    /// The save question of a quit is on screen, so a second quit does not ask again.
+    private(set) var isAskingToQuit = false
+    /// The audio devices the system lists, which Settings looks at again while it shows.
+    private(set) var devices: [AudioDevice] = []
+    private(set) var defaultDevice: AudioDevice?
     /// Goes up each time a preset is saved.
     private var presetChanges = 0
 
@@ -82,6 +85,8 @@ final class AppModel {
         await self?.probe(plugin)
     }
     @ObservationIgnored private var settingsReturn = Screen.start
+    /// Devices seen so far by UID, so one that has gone is still called by its name.
+    @ObservationIgnored private var deviceNames: [String: String] = [:]
 
     init(base: URL = AppPaths.base()) {
         if ProcessInfo.processInfo.environment["PLUGINARIUM_TEST_UNITS"] == "1" { registerTestUnits() }
@@ -129,27 +134,111 @@ final class AppModel {
         }
     }
 
-    /// Saves under `name`, or the name it has, with the state its plugins are in now.
-    func save(name: String? = nil) throws {
-        guard var session else { return }
-        var configuration = audio?.capturingState(of: session.configuration) ?? session.configuration
-        if let name { configuration.name = name }
-        try configurationStore.save(configuration)
+    // MARK: - Saving
+
+    /// Whether the commands that open or leave a configuration can run: nothing else is being asked.
+    var commandsAvailable: Bool {
+        screen != .settings && dialog == nil && nameDialog == nil && addModel == nil
+    }
+
+    /// Plugins give no signal when their sound changes, so this looks at the open windows first.
+    var leaveAction: LeaveAction {
+        pluginWindows.noteChanges()
+        return session?.leaveAction ?? .proceed
+    }
+
+    /// Command-S, the Save button and Save configuration. A configuration that was never saved asks
+    /// for its name first.
+    func saveCurrent(then done: @escaping (_ saved: Bool) -> Void = { _ in }) {
+        guard let session else { return done(false) }
+        guard session.needsName else { return done(write()) }
+        nameDialog = .saveConfiguration(
+            value: session.configuration.name,
+            save: { [weak self] name in done(self?.write(name: name) ?? false) },
+            cancel: { done(false) })
+    }
+
+    /// Save as in the configuration menu: a copy under a new name, which is the configuration from then on.
+    func beginSaveAs() {
+        guard let session else { return }
+        pluginWindows.noteChanges()
+        nameDialog = .saveAs(value: SaveFlow.copyName(of: session.configuration.name)) { [weak self] name in
+            self?.write(name: name, asCopy: true)
+        }
+    }
+
+    /// Stores the configuration with the state its plugins are in now. The configuration stays unsaved
+    /// when the file cannot be written.
+    @discardableResult
+    private func write(name: String? = nil, asCopy: Bool = false) -> Bool {
+        guard var session else { return false }
+        let givenName: String?
+        if let name {
+            guard let trimmed = SaveFlow.name(from: name) else { return false }
+            givenName = trimmed
+        } else {
+            givenName = nil
+        }
+        pluginWindows.noteChanges()
+        let held = audio?.captureState(of: session.configuration) ?? .init(configuration: session.configuration, unreadable: [])
+        var configuration = held.configuration
+        if let givenName { configuration.name = givenName }
+        if asCopy { configuration = SaveFlow.copy(of: configuration, named: configuration.name) }
+        do {
+            try configurationStore.save(configuration)
+        } catch {
+            report(SaveFlow.failureNotice(name: configuration.name), error)
+            return false
+        }
         session.configuration = configuration
         session.markSaved()
         self.session = session
         configurations = configurationStore.loadAll()
+        // A sound that could not be read still saves, so this says so instead of the plain message.
+        show(SaveFlow.unreadableNotice(held.unreadable) ?? SaveFlow.savedNotice(name: configuration.name))
+        return true
     }
 
-    /// Runs `action` right away unless there are unsaved changes. Then it waits in `pendingLeave` for
-    /// the save question.
+    /// Runs `action` right away unless there are unsaved changes. Then it asks, and runs it once they
+    /// are saved or thrown away.
     func leave(then action: @escaping () -> Void) {
-        pluginWindows.noteChanges()
-        guard session?.leaveAction == .askToSave else {
+        guard leaveAction == .askToSave else {
             action()
             return
         }
-        pendingLeave = action
+        askToSave(proceed: action, cancel: {})
+    }
+
+    /// For quitting. True when the app may quit now. Otherwise the answer comes later, to `reply` if
+    /// this started the question, and a quit asked while it is on screen waits for the same answer.
+    func askBeforeQuitting(reply: @escaping (Bool) -> Void) -> Bool {
+        guard leaveAction == .askToSave else { return true }
+        guard !isAskingToQuit else { return false }
+        isAskingToQuit = true
+        askToSave(
+            proceed: { [weak self] in
+                self?.isAskingToQuit = false
+                reply(true)
+            },
+            cancel: { [weak self] in
+                self?.isAskingToQuit = false
+                reply(false)
+            })
+        return false
+    }
+
+    /// "Save changes?" through `dialog`, so plugin windows step aside for it. `proceed` runs for Don't
+    /// save, and for Save once the configuration is stored; anything else ends in `cancel`.
+    private func askToSave(proceed: @escaping () -> Void, cancel: @escaping () -> Void) {
+        dialog = .saveChanges(
+            configuration: session?.configuration.name ?? "",
+            dontSave: proceed,
+            cancel: cancel,
+            save: { [weak self] in
+                self?.saveCurrent { saved in
+                    if saved { proceed() } else { cancel() }
+                }
+            })
     }
 
     /// Asks before taking a channel out of the configuration.
@@ -296,7 +385,7 @@ final class AppModel {
         guard let slot = session?.configuration.slot(at: location),
             let state = PresetLabel.stateAfterWindowClosed(slot: slot, opened: opened, closed: closed)
         else { return }
-        edit { $0.updateSlot(at: location) { $0.state = state } }
+        edit { $0.updateSlot(at: location) { $0.takeChangedSound(state) } }
     }
 
     /// Goes through `Channel`'s methods and `edit`, like every change of a chain.
@@ -370,12 +459,7 @@ final class AppModel {
         do {
             // A running plugin keeps its own state whatever its slot says, so it is told directly.
             try plugin.restore(preset.state)
-            edit {
-                $0.updateSlot(at: location) { slot in
-                    slot.presetName = preset.name
-                    slot.state = preset.state
-                }
-            }
+            edit { $0.updateSlot(at: location) { $0.takePreset(preset.name, state: preset.state) } }
         } catch {
             report("\(preset.name) could not be loaded", error)
         }
@@ -386,12 +470,7 @@ final class AppModel {
         do {
             try plugin.selectFactoryPreset(name)
             let state = try plugin.fullState()
-            edit {
-                $0.updateSlot(at: location) { slot in
-                    slot.presetName = name
-                    slot.state = state
-                }
-            }
+            edit { $0.updateSlot(at: location) { $0.takePreset(name, state: state) } }
         } catch {
             report("\(name) could not be loaded", error)
         }
@@ -417,12 +496,7 @@ final class AppModel {
         }
         presetCache[plugin.id] = presetStore.presets(for: plugin.id)
         presetChanges += 1
-        edit {
-            $0.updateSlot(at: location) { slot in
-                slot.presetName = name
-                slot.state = state
-            }
-        }
+        edit { $0.updateSlot(at: location) { $0.takePreset(name, state: state) } }
         switch session.followUpAfterPresetSaved() {
         case .askToSaveConfiguration:
             dialog = .updateConfiguration(preset: name, configuration: session.configuration.name) { [weak self] in
@@ -448,21 +522,58 @@ final class AppModel {
         }
     }
 
-    // MARK: - Stubs: the mixer shows these controls, and the tasks named here give them their actions.
+    // MARK: - Settings
 
-    /// Save button of the top bar (Task 16).
-    func saveCurrent() {}
-
-    /// Save as in the configuration menu (Task 16).
-    func beginSaveAs() {}
-
+    /// Settings opens over the Start screen as well, so the audio session is made for it. Making one
+    /// starts no device: nothing plays until a configuration opens.
     func showSettings() {
         settingsReturn = screen
+        _ = audioSession()
+        refreshDevices()
         screen = .settings
     }
 
     func closeSettings() {
         screen = settingsReturn
+    }
+
+    /// Reads the devices the system lists now, and remembers their names.
+    func refreshDevices() {
+        let found = DeviceCatalog.all()
+        for device in found { deviceNames[device.id] = device.name }
+        if found != devices { devices = found }
+        let output = DeviceCatalog.defaultOutput()
+        if output != defaultDevice { defaultDevice = output }
+    }
+
+    /// The device whose channels the routes of Settings choose from: the one that runs, else the one
+    /// picked, else the system's. Looking does not open it.
+    private var referenceDevice: AudioDevice? {
+        if case .running(let device)? = audio?.engine.state { return device }
+        guard let uid = settings.audioDeviceUID else { return defaultDevice }
+        return devices.first { $0.id == uid }
+    }
+
+    var settingsInputs: Int { referenceDevice?.inputChannels.count ?? 0 }
+    var settingsOutputs: Int { referenceDevice?.outputChannels.count ?? 0 }
+
+    func name(ofDevice uid: String) -> String? { deviceNames[uid] }
+
+    /// Stores the change, and tells audio, which only keeps it while no configuration plays. A change of
+    /// the configuration is not one, so nothing becomes unsaved.
+    @discardableResult
+    func changeSettings(_ change: (inout AppSettings) -> Void) -> Task<Void, Never>? {
+        var changed = settings
+        change(&changed)
+        guard changed != settings else { return nil }
+        settings = changed
+        do {
+            try settingsStore.save(changed)
+        } catch {
+            logger.error("Cannot write the settings: \(error.localizedDescription, privacy: .public)")
+        }
+        guard let audio else { return nil }
+        return Task { await audio.applySettings(changed) }
     }
 
     /// For quitting: everything audio goes, in the order `AudioSession.close` keeps.

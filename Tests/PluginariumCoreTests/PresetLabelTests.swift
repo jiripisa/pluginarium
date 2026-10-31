@@ -7,8 +7,8 @@ struct PresetLabelTests {
     private let bright = Data([1])
     private let dark = Data([2])
 
-    private func slot(preset: String? = nil, state: Data? = nil) -> PluginSlot {
-        PluginSlot(plugin: plugin, displayName: "Test Plugin", presetName: preset, state: state)
+    private func slot(preset: String? = nil, state: Data? = nil, custom: Bool = false) -> PluginSlot {
+        PluginSlot(plugin: plugin, displayName: "Test Plugin", presetName: preset, state: state, isCustomSound: custom)
     }
 
     private func stored(_ name: String, state: Data) -> [Preset] {
@@ -19,8 +19,24 @@ struct PresetLabelTests {
         #expect(PresetLabel.text(for: slot(), saved: []) == "Default sound")
     }
 
-    @Test func noPresetWithStateIsACustomSound() {
-        #expect(PresetLabel.text(for: slot(state: bright), saved: []) == "Custom sound")
+    @Test func noPresetWithAChangedSoundIsACustomSound() {
+        #expect(PresetLabel.text(for: slot(state: bright, custom: true), saved: []) == "Custom sound")
+    }
+
+    @Test func aSavedConfigurationHoldsEveryStateAndLeavesAnUntouchedPluginOnTheDefaultSound() {
+        #expect(PresetLabel.text(for: slot(state: bright), saved: []) == "Default sound")
+    }
+
+    @Test func aSlotTakingAChangedSoundIsCustom() {
+        var changed = slot(preset: "Lead", state: bright)
+        changed.takeChangedSound(dark)
+        #expect(changed.state == dark && changed.isCustomSound && changed.presetName == "Lead")
+    }
+
+    @Test func pickingAPresetEndsTheCustomSound() {
+        var picked = slot(state: dark, custom: true)
+        picked.takePreset("Lead", state: bright)
+        #expect(picked.state == bright && !picked.isCustomSound && picked.presetName == "Lead")
     }
 
     @Test func aPresetThatMatchesItsStoredStateReadsItsName() {

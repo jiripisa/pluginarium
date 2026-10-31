@@ -1,3 +1,4 @@
+import PluginariumCore
 import SwiftUI
 
 /// A question with a few answers, `dialog` of `ui-prototype/app.js`. Tasks that ask the owner
@@ -7,13 +8,15 @@ struct ChoiceDialog: Identifiable {
         let id = UUID()
         var label: String
         var isPrimary = false
+        /// What Escape answers. Without one, the first choice does.
+        var isCancel = false
         var action: () -> Void = {}
     }
 
     let id = UUID()
     var title: String
     var text: String
-    /// The first choice is also what Escape answers; the primary one is what Return answers.
+    /// The primary choice is what Return answers; Escape answers the one that cancels, or else the first.
     var choices: [Choice]
 }
 
@@ -43,6 +46,24 @@ extension ChoiceDialog {
     }
 }
 
+extension ChoiceDialog {
+    /// `leaveConfig`: asked before the configuration on screen is left behind, or the app quits. Escape cancels,
+    /// so it never throws changes away.
+    static func saveChanges(
+        configuration name: String, dontSave: @escaping () -> Void, cancel: @escaping () -> Void, save: @escaping () -> Void
+    ) -> ChoiceDialog {
+        ChoiceDialog(
+            title: "Save changes?",
+            text: SaveFlow.question(forConfigurationNamed: name),
+            choices: [
+                Choice(label: "Don't save", action: dontSave),
+                Choice(label: "Cancel", isCancel: true, action: cancel),
+                Choice(label: "Save", isPrimary: true, action: save),
+            ]
+        )
+    }
+}
+
 /// A question for a name, `nameDialog` of `ui-prototype/app.js`.
 struct NameDialog: Identifiable {
     let id = UUID()
@@ -52,6 +73,7 @@ struct NameDialog: Identifiable {
     var confirmLabel: String
     var note: String?
     var confirm: (String) -> Void
+    var cancel: () -> Void = {}
 }
 
 extension NameDialog {
@@ -65,6 +87,16 @@ extension NameDialog {
             note: "The preset stays available for this plugin in all configurations.",
             confirm: save
         )
+    }
+
+    /// A configuration that was never saved is named when it first is.
+    static func saveConfiguration(value: String, save: @escaping (String) -> Void, cancel: @escaping () -> Void) -> NameDialog {
+        NameDialog(title: "Save configuration", label: "Name", value: value, confirmLabel: "Save", confirm: save, cancel: cancel)
+    }
+
+    /// Save as starts from the name with "copy" added.
+    static func saveAs(value: String, save: @escaping (String) -> Void) -> NameDialog {
+        NameDialog(title: "Save as", label: "Name", value: value, confirmLabel: "Save", confirm: save)
     }
 }
 
@@ -88,7 +120,7 @@ extension View {
                             // Return reaches both the field and the default button.
                             guard dialog.wrappedValue?.id == name.id else { return }
                             dialog.wrappedValue = nil
-                            if let answer { name.confirm(answer) }
+                            if let answer { name.confirm(answer) } else { name.cancel() }
                         }
                         .id(name.id)
                     }
@@ -189,7 +221,8 @@ private struct ChoiceDialogBox: View {
 
     private func shortcut(of choice: ChoiceDialog.Choice) -> KeyboardShortcut? {
         if choice.isPrimary { return .defaultAction }
-        return choice.id == dialog.choices.first?.id ? .cancelAction : nil
+        if choice.isCancel { return .cancelAction }
+        return !dialog.choices.contains(where: \.isCancel) && choice.id == dialog.choices.first?.id ? .cancelAction : nil
     }
 }
 

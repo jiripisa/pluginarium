@@ -144,19 +144,42 @@ public final class ConfigurationRunner {
         wanted[channel].flatMap { cache[$0.plugin] }
     }
 
+    /// What `captureState` found.
+    public struct StateCapture {
+        public var configuration: Configuration
+        /// The display names of plugins whose state could not be read. Their slots keep the state they had.
+        public var unreadable: [String]
+
+        public init(configuration: Configuration, unreadable: [String]) {
+            self.configuration = configuration
+            self.unreadable = unreadable
+        }
+    }
+
+    /// For tests, which make a plugin that cannot give its state.
+    var readState: (HostedPlugin) throws -> Data = { try $0.fullState() }
+
     /// `configuration` with each slot holding the current state of its running plugin. A slot
     /// whose plugin does not run keeps the state it has.
     public func capturingState(of configuration: Configuration) -> Configuration {
+        captureState(of: configuration).configuration
+    }
+
+    /// Like `capturingState`, and says which plugins could not be read.
+    public func captureState(of configuration: Configuration) -> StateCapture {
         var result = configuration
+        var unreadable: [String] = []
         for channel in result.channels.indices {
-            capture(&result.channels[channel].slot, node: result.channels[channel].id)
+            capture(&result.channels[channel].slot, node: result.channels[channel].id, unreadable: &unreadable)
             for row in result.channels[channel].effects.indices {
                 for effect in result.channels[channel].effects[row].indices {
-                    capture(&result.channels[channel].effects[row][effect].slot, node: result.channels[channel].effects[row][effect].id)
+                    capture(
+                        &result.channels[channel].effects[row][effect].slot, node: result.channels[channel].effects[row][effect].id,
+                        unreadable: &unreadable)
                 }
             }
         }
-        return result
+        return StateCapture(configuration: result, unreadable: unreadable)
     }
 
     /// The channel's slot in 0...63, stable while the channel exists. None when the channel does
@@ -345,12 +368,13 @@ public final class ConfigurationRunner {
         return failure.localizedDescription
     }
 
-    private func capture(_ slot: inout PluginSlot, node: UUID) {
+    private func capture(_ slot: inout PluginSlot, node: UUID, unreadable: inout [String]) {
         guard let plugin = hosted[node], plugin.id == slot.plugin else { return }
         do {
-            slot.state = try plugin.fullState()
+            slot.state = try readState(plugin)
         } catch {
             let name = slot.displayName
+            unreadable.append(name)
             logger.error("Cannot capture \(name, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }

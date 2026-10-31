@@ -4,10 +4,10 @@ import Foundation
 /// configuration learns of it when the plugin's window closes.
 public enum PresetLabel {
 
-    /// A plugin always has a state, while a slot holds one only once its sound was chosen.
+    /// Saving fills the state of every slot, so only `isCustomSound` tells a changed sound from a default one.
     public static func text(for slot: PluginSlot, saved: [Preset]) -> String {
         guard let name = slot.presetName else {
-            return slot.state == nil ? "Default sound" : "Custom sound"
+            return slot.isCustomSound ? "Custom sound" : "Default sound"
         }
         guard let state = slot.state, let stored = saved.first(where: { $0.name == name }), state != stored.state else {
             return name
@@ -21,5 +21,20 @@ public enum PresetLabel {
     public static func stateAfterWindowClosed(slot: PluginSlot, opened: Data?, closed: Data?) -> Data? {
         guard let closed, let reference = slot.state ?? opened, closed != reference else { return nil }
         return closed
+    }
+}
+
+extension PluginSlot {
+    /// The plugin's window showed that the owner changed its sound.
+    public mutating func takeChangedSound(_ state: Data) {
+        self.state = state
+        isCustomSound = true
+    }
+
+    /// A preset of the plugin was picked, which ends any custom sound.
+    public mutating func takePreset(_ name: String, state: Data) {
+        presetName = name
+        self.state = state
+        isCustomSound = false
     }
 }

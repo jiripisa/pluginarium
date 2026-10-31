@@ -111,12 +111,30 @@ public struct PluginSlot: Codable, Equatable, Sendable {
     public var displayName: String
     public var presetName: String?
     public var state: Data?
+    /// The owner changed the sound after the last preset was picked. A saved configuration holds
+    /// every plugin's state, so `state` alone cannot tell a plugin that was touched from one that was not.
+    public var isCustomSound: Bool
 
-    public init(plugin: PluginID, displayName: String, presetName: String? = nil, state: Data? = nil) {
+    public init(plugin: PluginID, displayName: String, presetName: String? = nil, state: Data? = nil, isCustomSound: Bool = false) {
         self.plugin = plugin
         self.displayName = displayName
         self.presetName = presetName
         self.state = state
+        self.isCustomSound = isCustomSound
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case plugin, displayName, presetName, state, isCustomSound
+    }
+
+    /// A file from before `isCustomSound` has no such key.
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        plugin = try values.decode(PluginID.self, forKey: .plugin)
+        displayName = try values.decode(String.self, forKey: .displayName)
+        presetName = try values.decodeIfPresent(String.self, forKey: .presetName)
+        state = try values.decodeIfPresent(Data.self, forKey: .state)
+        isCustomSound = try values.decodeIfPresent(Bool.self, forKey: .isCustomSound) ?? false
     }
 }
 

@@ -126,8 +126,14 @@ public final class AudioSession {
 
     /// `configuration` with the state of its plugins, whether they run or left with the device.
     public func capturingState(of configuration: Configuration) -> Configuration {
+        captureState(of: configuration).configuration
+    }
+
+    /// Like `capturingState`, and says which running plugins could not be read. Those keep the state
+    /// the session last knew.
+    public func captureState(of configuration: Configuration) -> ConfigurationRunner.StateCapture {
         let held = wanted.map(configuration.keepingState(of:)) ?? configuration
-        return runner?.capturingState(of: held) ?? held
+        return runner?.captureState(of: held) ?? .init(configuration: held, unreadable: [])
     }
 
     /// Takes everything down for quitting: audio first, then the plugins, then the router. The engine

@@ -492,6 +492,25 @@ struct RunnerTests {
         }
     }
 
+    @Test func aPluginThatCannotBeReadKeepsItsStateAndIsReported() async throws {
+        let known = try await HostedPlugin.load(delayID).fullState()
+        try await withRunner { runner, _ in
+            let channel = instrumentChannel(effects: [[InsertEffect(slot: slot(delayID, state: known))]])
+            let config = configuration(channel)
+            await runner.apply(config)
+            runner.readState = { plugin in
+                if plugin.id == delayID { throw HostedPluginError.invalidState }
+                return try plugin.fullState()
+            }
+
+            let capture = runner.captureState(of: config)
+
+            #expect(capture.configuration.channels[0].slot.state != nil)
+            #expect(capture.configuration.channels[0].effects[0][0].slot.state == known)
+            #expect(capture.unreadable == [channel.effects[0][0].slot.displayName])
+        }
+    }
+
     @Test func capturedStateComesBackOnALaterLoad() async throws {
         let channel = effectChannel(delayID)
         var captured: Configuration?

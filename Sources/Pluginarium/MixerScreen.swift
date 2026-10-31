@@ -150,7 +150,7 @@ private struct Readout<Lead: View>: View {
 }
 
 /// Why nothing is playing, when something is wrong with the audio device.
-private struct AudioFaults: View {
+struct AudioFaults: View {
     let audio: AudioSession
 
     var body: some View {
