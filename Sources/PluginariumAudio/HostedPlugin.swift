@@ -24,8 +24,16 @@ extension HostedPluginError: LocalizedError {
     }
 }
 
+/// How long the interface gets to draw before a plugin holds up the main thread: a little over a frame.
+private let drawPause = Duration.milliseconds(20)
+
 /// An instantiated Audio Unit. Holds the raw `AudioUnit` because the C render core
 /// calls `AudioUnitRender` on it directly.
+///
+/// Audio Units expect to be created, set up and destroyed on the main thread. JUCE plugins run timers
+/// there, and one that fires during a destructor on another thread lands in a half destroyed object.
+/// So everything of that kind is `@MainActor`, and `deinit` passes the unit to the main thread when the
+/// last reference drops somewhere else.
 public final class HostedPlugin: @unchecked Sendable {
 
     public let id: PluginID
@@ -42,30 +50,49 @@ public final class HostedPlugin: @unchecked Sendable {
         self.audioUnit = audioUnit
     }
 
+    /// The last reference can drop on any thread. No render reaches the unit by then, because the
+    /// runner only lets go of a unit that has left every graph. This never waits for the main thread,
+    /// which may itself be waiting for the thread this runs on.
     deinit {
-        if isInitialized { AudioUnitUninitialize(audioUnit) }
-        AudioComponentInstanceDispose(audioUnit)
+        let teardown = Teardown(audioUnit: audioUnit, isInitialized: isInitialized, viewOwner: viewOwner)
+        viewOwner = nil
+        if Thread.isMainThread {
+            teardown.run()
+        } else {
+            DispatchQueue.main.async { teardown.run() }
+        }
     }
 
     /// Instantiates in process (version 3 units included), since the render thread calls into the unit.
+    /// This holds up the main thread for as long as the unit takes to create, so call `letInterfaceDraw` first.
+    @MainActor
     public static func load(_ id: PluginID) async throws -> HostedPlugin {
         var description = id.componentDescription
         guard let component = AudioComponentFindNext(nil, &description) else {
             throw HostedPluginError.notFound(id)
         }
         let unit = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<UnitBox, Error>) in
-            AudioComponentInstantiate(component, .loadInProcess) { instance, status in
+            // `@Sendable` keeps the block nonisolated: the system may call it on any thread.
+            let completion: @Sendable (AudioComponentInstance?, OSStatus) -> Void = { instance, status in
                 if status == noErr, let instance {
                     continuation.resume(returning: UnitBox(unit: instance))
                 } else {
                     continuation.resume(throwing: HostedPluginError.osStatus(status, "AudioComponentInstantiate"))
                 }
             }
+            AudioComponentInstantiate(component, .loadInProcess, completion)
         }
         return HostedPlugin(id: id, audioUnit: unit.unit)
     }
 
+    /// Frees the main thread long enough to draw, so a "Loading" state shows before a plugin holds it up.
+    @MainActor
+    static func letInterfaceDraw() async {
+        try? await Task.sleep(for: drawPause)
+    }
+
     /// Names of the input buses; "Input" or "Bus n" when the unit does not name one.
+    @MainActor
     public var inputBusNames: [String] {
         var count: UInt32 = 0
         var size = UInt32(MemoryLayout<UInt32>.size)
@@ -82,6 +109,7 @@ public final class HostedPlugin: @unchecked Sendable {
 
     /// Sets maximum frames and a deinterleaved Float32 format on every bus (stereo, mono when
     /// the unit refuses), then initializes the unit.
+    @MainActor
     public func configure(sampleRate: Double, maxFrames: UInt32) throws {
         if isInitialized {
             AudioUnitUninitialize(audioUnit)
@@ -103,6 +131,7 @@ public final class HostedPlugin: @unchecked Sendable {
     }
 
     /// The unit's class info, serialized as a binary property list.
+    @MainActor
     public func fullState() throws -> Data {
         var info: Unmanaged<CFDictionary>?
         var size = UInt32(MemoryLayout<Unmanaged<CFDictionary>?>.size)
@@ -111,6 +140,7 @@ public final class HostedPlugin: @unchecked Sendable {
         return try PropertyListSerialization.data(fromPropertyList: info.takeRetainedValue(), format: .binary, options: 0)
     }
 
+    @MainActor
     public func restore(_ state: Data) throws {
         guard let plist = try PropertyListSerialization.propertyList(from: state, options: [], format: nil) as? NSDictionary
         else { throw HostedPluginError.invalidState }
@@ -124,10 +154,12 @@ public final class HostedPlugin: @unchecked Sendable {
         }
     }
 
+    @MainActor
     public func factoryPresets() -> [String] {
         presets().map(\.name)
     }
 
+    @MainActor
     public func selectFactoryPreset(_ name: String) throws {
         guard let preset = presets().first(where: { $0.name == name }) else {
             throw HostedPluginError.unknownPreset(name)
@@ -146,6 +178,27 @@ public final class HostedPlugin: @unchecked Sendable {
 
     private struct UnitBox: @unchecked Sendable {
         let unit: AudioUnit
+    }
+
+    /// What `deinit` hands to the main thread. The owner of the plugin's view comes along, since a view
+    /// controller has to go there too, and goes first, because what it shows uses the unit. `run` lets
+    /// go of it rather than leaving that to this object, whose last reference can drop on either thread.
+    private final class Teardown: @unchecked Sendable {
+        private let audioUnit: AudioUnit
+        private let isInitialized: Bool
+        private var viewOwner: AnyObject?
+
+        init(audioUnit: AudioUnit, isInitialized: Bool, viewOwner: AnyObject?) {
+            self.audioUnit = audioUnit
+            self.isInitialized = isInitialized
+            self.viewOwner = viewOwner
+        }
+
+        func run() {
+            viewOwner = nil
+            if isInitialized { AudioUnitUninitialize(audioUnit) }
+            AudioComponentInstanceDispose(audioUnit)
+        }
     }
 
     private func presets() -> [(number: Int32, name: String)] {

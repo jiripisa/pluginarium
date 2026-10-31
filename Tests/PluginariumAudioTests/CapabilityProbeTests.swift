@@ -28,6 +28,14 @@ struct CapabilityProbeTests {
         #expect(result?.capabilities.hasAudioIn == true)
     }
 
+    @Test("A probe creates and destroys its plugin on the main thread")
+    func probeStaysOnTheMainThread() async {
+        let result = await CapabilityProbe.probe(followedUnit("PlP1"))
+        #expect(result != nil)
+        #expect(await lifeEvent(.created, subtype: "PlP1")?.onMainThread == true)
+        #expect(await lifeEvent(.destroyed, subtype: "PlP1")?.onMainThread == true)
+    }
+
     @Test("A plugin that is not installed gives nothing")
     func missingPlugin() async {
         registerTestUnits()

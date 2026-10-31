@@ -144,7 +144,7 @@ final class AddModel {
         }
     }
 
-    /// What a plugin loaded in the background said. If it could not be loaded, what is unknown stays unknown.
+    /// What a plugin loaded for this dialog said. If it could not be loaded, what is unknown stays unknown.
     private func probed(_ plugin: PluginID, _ result: ProbeResult?) {
         guard selected == plugin else { return }
         if let result {

@@ -33,8 +33,8 @@ public final class ConfigurationRunner {
 
     /// What the runner calls outside itself, so a test can hold a load open or fail an install.
     struct Seams {
-        var load: @Sendable (PluginID) async throws -> HostedPlugin = { try await HostedPlugin.load($0) }
-        var prepare: @Sendable (HostedPlugin, PluginSlot, Double, UInt32) async throws -> Void = ConfigurationRunner.prepare
+        var load: @MainActor (PluginID) async throws -> HostedPlugin = { try await HostedPlugin.load($0) }
+        var prepare: @MainActor (HostedPlugin, PluginSlot, Double, UInt32) async throws -> Void = ConfigurationRunner.prepare
         var installCallbacks: @MainActor (HostedPlugin, OpaquePointer) throws -> Void = ConfigurationRunner.installCallbacks
         var installGraph: @MainActor (OpaquePointer, UnsafePointer<PRStrip>?, UInt32) -> UInt64 = { pr_engine_install_graph($0, $1, $2) }
     }
@@ -72,6 +72,8 @@ public final class ConfigurationRunner {
 
     private var hosted: [UUID: HostedPlugin] = [:]
     private var loads: Set<Load> = []
+    /// The last plugin to ask for the main thread, which the next one lines up behind.
+    private var lastTurn: Task<Void, Never>?
     /// Calls to `apply` waiting for the newest configuration to settle.
     private var settling: [CheckedContinuation<Void, Never>] = []
     private var failures: [UUID: any Error] = [:]
@@ -267,10 +269,13 @@ public final class ConfigurationRunner {
     /// goes with this call: it never reached a graph, so nothing else can hold its unit.
     private func perform(_ load: Load) async {
         do {
+            await takeTurn()
+            guard isWanted(load) else { return }
             let plugin = try await seams.load(load.plugin)
             if cache[load.plugin] == nil {
                 cache[load.plugin] = .derive(auType: load.plugin.type, inputBusNames: plugin.inputBusNames)
             }
+            await takeTurn()
             guard let slot = wanted[load.node], slot.plugin == load.plugin else { return }
             try await seams.prepare(plugin, slot, sampleRate, maxFrames)
             guard isWanted(load) else { return }
@@ -281,10 +286,27 @@ public final class ConfigurationRunner {
         }
     }
 
-    /// Nonisolated because initializing a unit can take seconds, which the main actor must not wait for.
+    /// Creating and configuring a plugin hold up the main thread for as long as the plugin takes, so
+    /// plugins do this one at a time, in the order they asked, with a chance to draw before each.
+    ///
+    /// A turn ends when its plugin next lets go of the main actor, not when its load has finished, so
+    /// a load that never ends holds up no other plugin.
+    private func takeTurn() async {
+        let ahead = lastTurn
+        let turn = Task {
+            await ahead?.value
+            // Lets the plugin `ahead` let through go first, so the pause comes after its work.
+            await Task.yield()
+            await HostedPlugin.letInterfaceDraw()
+        }
+        lastTurn = turn
+        await turn.value
+    }
+
+    /// On the main actor, like everything else in a plugin's life, however long it takes.
     /// A slot that names a preset but holds no state names a factory preset. One the plugin no longer
     /// has leaves it on its default sound, which is no reason to keep it from playing.
-    private nonisolated static func prepare(_ plugin: HostedPlugin, _ slot: PluginSlot, _ sampleRate: Double, _ maxFrames: UInt32) async throws {
+    private static func prepare(_ plugin: HostedPlugin, _ slot: PluginSlot, _ sampleRate: Double, _ maxFrames: UInt32) async throws {
         try plugin.configure(sampleRate: sampleRate, maxFrames: maxFrames)
         if let state = slot.state {
             try plugin.restore(state)

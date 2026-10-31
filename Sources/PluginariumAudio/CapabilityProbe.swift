@@ -10,14 +10,15 @@ public struct ProbeResult: Equatable, Sendable {
 /// configuration. The plugin is not initialized and goes away when the probe ends.
 public enum CapabilityProbe {
 
-    /// Nil when the plugin cannot be loaded. Runs off the calling actor, since loading can take a while.
+    /// Nil when the plugin cannot be loaded. A plugin lives on the main thread, so this holds up the
+    /// interface for as long as the plugin takes to load and to go. Run one at a time.
+    @MainActor
     public static func probe(_ id: PluginID) async -> ProbeResult? {
-        await Task.detached(priority: .utility) { () -> ProbeResult? in
-            guard let plugin = try? await HostedPlugin.load(id) else { return nil }
-            return ProbeResult(
-                capabilities: .derive(auType: id.type, inputBusNames: plugin.inputBusNames),
-                factoryPresets: plugin.factoryPresets()
-            )
-        }.value
+        await HostedPlugin.letInterfaceDraw()
+        guard let plugin = try? await HostedPlugin.load(id) else { return nil }
+        return ProbeResult(
+            capabilities: .derive(auType: id.type, inputBusNames: plugin.inputBusNames),
+            factoryPresets: plugin.factoryPresets()
+        )
     }
 }

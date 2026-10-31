@@ -7,14 +7,46 @@ public func registerTestUnits() {
     _ = registration
 }
 
+/// Registers an effect that works like Test Gain under `subtype` (type aufx, manufacturer Plug). A test
+/// that follows a unit's life takes a subtype of its own, so no other test's units show up in it.
+public func registerFollowedUnit(subtype: String) {
+    register(TestGain.self, type: code("aufx"), subtype: subtype, name: "Test \(subtype)")
+}
+
+/// A step in the life of a test unit that a host has to keep on the main thread.
+public enum UnitLifeStep: Sendable {
+    case created
+    case renderResourcesAllocated
+    case renderResourcesDeallocated
+    case destroyed
+}
+
+public struct UnitLifeEvent: Sendable, Equatable {
+    public let step: UnitLifeStep
+    public let onMainThread: Bool
+}
+
+/// What has happened so far to the units of `subtype`, oldest first.
+public func unitLifeEvents(subtype: String) -> [UnitLifeEvent] {
+    lifeEvents.withLock { $0[code(subtype)] ?? [] }
+}
+
+private let lifeEvents = Mutex<[OSType: [UnitLifeEvent]]>([:])
+
+private func record(_ step: UnitLifeStep, subtype: OSType) {
+    let event = UnitLifeEvent(step: step, onMainThread: Thread.isMainThread)
+    lifeEvents.withLock { $0[subtype, default: []].append(event) }
+}
+
+private func register(_ unitClass: AUAudioUnit.Type, type: OSType, subtype: String, name: String) {
+    let description = AudioComponentDescription(
+        componentType: type, componentSubType: code(subtype), componentManufacturer: code("Plug"),
+        componentFlags: 0, componentFlagsMask: 0
+    )
+    AUAudioUnit.registerSubclass(unitClass, as: description, name: "Pluginarium: \(name)", version: 1)
+}
+
 private let registration: Void = {
-    func register(_ unitClass: AUAudioUnit.Type, type: OSType, subtype: String, name: String) {
-        let description = AudioComponentDescription(
-            componentType: type, componentSubType: code(subtype), componentManufacturer: code("Plug"),
-            componentFlags: 0, componentFlagsMask: 0
-        )
-        AUAudioUnit.registerSubclass(unitClass, as: description, name: "Pluginarium: \(name)", version: 1)
-    }
     register(TestInstrument.self, type: code("aumu"), subtype: "PlIn", name: "Test Instrument")
     register(TestGain.self, type: code("aufx"), subtype: "PlFx", name: "Test Gain")
     register(TestSidechain.self, type: code("aufx"), subtype: "PlSc", name: "Test Sidechain")
@@ -41,8 +73,11 @@ private class TestUnit: AUAudioUnit {
     private var outputList: AUAudioUnitBusArray!
     /// One scratch buffer list per input bus, allocated in `allocateRenderResources`.
     fileprivate var scratch: [UnsafeMutableAudioBufferListPointer] = []
+    private let subtype: OSType
 
     override init(componentDescription: AudioComponentDescription, options: AudioComponentInstantiationOptions = []) throws {
+        subtype = componentDescription.componentSubType
+        record(.created, subtype: subtype)
         try super.init(componentDescription: componentDescription, options: options)
         let defaultFormat = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: Self.busChannels)!
         for name in Self.inputBusNames {
@@ -56,10 +91,15 @@ private class TestUnit: AUAudioUnit {
         maximumFramesToRender = 4096
     }
 
+    deinit {
+        record(.destroyed, subtype: subtype)
+    }
+
     override var inputBusses: AUAudioUnitBusArray { inputList }
     override var outputBusses: AUAudioUnitBusArray { outputList }
 
     override func allocateRenderResources() throws {
+        record(.renderResourcesAllocated, subtype: subtype)
         try super.allocateRenderResources()
         let frames = Int(maximumFramesToRender)
         scratch = inputs.map { bus in
@@ -77,6 +117,7 @@ private class TestUnit: AUAudioUnit {
     }
 
     override func deallocateRenderResources() {
+        record(.renderResourcesDeallocated, subtype: subtype)
         for list in scratch {
             for buffer in list { buffer.mData?.deallocate() }
             list.unsafeMutablePointer.deallocate()

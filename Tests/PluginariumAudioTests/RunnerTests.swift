@@ -297,6 +297,56 @@ struct RunnerTests {
         }
     }
 
+    // MARK: - The main thread
+
+    @Test func applyCreatesAndConfiguresOnTheMainThreadAndShutDownDisposesThere() async throws {
+        try await withRunner { runner, _ in
+            let channel = effectChannel(followedUnit("PlR1"))
+            await runner.apply(configuration(channel))
+            #expect(runner.status[channel.id] == .ready)
+            #expect(await lifeEvent(.created, subtype: "PlR1")?.onMainThread == true)
+            #expect(await lifeEvent(.renderResourcesAllocated, subtype: "PlR1")?.onMainThread == true)
+
+            runner.shutDown()
+            #expect(await lifeEvent(.renderResourcesDeallocated, subtype: "PlR1")?.onMainThread == true)
+            #expect(await lifeEvent(.destroyed, subtype: "PlR1")?.onMainThread == true)
+        }
+    }
+
+    @Test func pluginsHoldTheMainThreadOneAtATimeWithTimeToDrawAfterEach() async throws {
+        try await withRunner { runner, _ in
+            var held: [(start: ContinuousClock.Instant, end: ContinuousClock.Instant)] = []
+            runner.seams.load = { id in
+                let start = ContinuousClock.now
+                usleep(50_000)
+                held.append((start, .now))
+                return try await HostedPlugin.load(id)
+            }
+            await runner.apply(configuration(instrumentChannel(), effectChannel(out: out23), instrumentChannel(out: out45)))
+            #expect(held.count == 3)
+            for (first, next) in zip(held, held.dropFirst()) {
+                #expect(first.end + .milliseconds(15) <= next.start)
+            }
+        }
+    }
+
+    @Test func nothingDeadlocksWhileTheMainActorWaitsForLoads() async throws {
+        try await withRunner { runner, _ in
+            var finished = 0
+            Task {
+                await runner.apply(configuration(instrumentChannel(effects: [[insert()]]), effectChannel(out: out23)))
+                finished += 1
+            }
+            Task {
+                _ = await CapabilityProbe.probe(sidechainID)
+                finished += 1
+            }
+            let deadline = ContinuousClock.now + .seconds(5)
+            while finished < 2, ContinuousClock.now < deadline { await Task.yield() }
+            #expect(finished == 2)
+        }
+    }
+
     // MARK: - What a loaded plugin gets
 
     @Test func unitsReadDeviceInputAndTheEngineTransport() async throws {

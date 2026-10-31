@@ -13,3 +13,4 @@
 - Presets: pick your own or the plugin's factory presets on a running plugin, save the current sound under a name, and choose whether the saved configuration follows. A sound that moved away from its preset reads "(changed)".
 - Saving: Save, Save as and a name for a new configuration, in the top bar and the File menu with Command-S and Command-Shift-S. Leaving a configuration with unsaved changes, or quitting, asks "Save changes?". A plugin whose sound cannot be read keeps its last saved sound, and a configuration that cannot be written stays unsaved. A plugin you did not touch stays on "Default sound" after saving.
 - Settings (Command-comma, from the Start screen and the mixer): audio device, sample rate and buffer size, MIDI clock source, and the default routing of instrument and effect positions. With System default the device keeps its own sample rate and buffer size, and these show what runs.
+- Fixed a crash when a plugin was unloaded.

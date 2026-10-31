@@ -276,7 +276,7 @@ final class AppModel {
 
     func knownFactoryPresets(of plugin: PluginID) -> [String]? { cache.factoryPresets(for: plugin) }
 
-    /// Loads the plugin in the background, remembers what it says and returns it. Nil when it cannot be loaded.
+    /// Loads the plugin, remembers what it says and returns it. Nil when it cannot be loaded.
     func probe(_ plugin: PluginID) async -> ProbeResult? {
         guard let result = await CapabilityProbe.probe(plugin) else { return nil }
         cache.store(result.capabilities, factoryPresets: result.factoryPresets, for: plugin)

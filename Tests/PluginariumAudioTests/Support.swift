@@ -163,7 +163,7 @@ func expectLevel(_ channel: [Float], _ level: Float, sourceLocation: SourceLocat
 func loadPlugin(type: String, subtype: String, manufacturer: String = "Plug", configured: Bool = true) async throws -> HostedPlugin {
     registerTestUnits()
     let plugin = try await HostedPlugin.load(PluginID(type: type, subtype: subtype, manufacturer: manufacturer))
-    if configured { try plugin.configure(sampleRate: sampleRate, maxFrames: unitMaxFrames) }
+    if configured { try await plugin.configure(sampleRate: sampleRate, maxFrames: unitMaxFrames) }
     return plugin
 }
 
@@ -173,6 +173,23 @@ func gain(configured: Bool = true) async throws -> HostedPlugin {
 }
 func sidechainUnit() async throws -> HostedPlugin { try await loadPlugin(type: "aufx", subtype: "PlSc") }
 func voice() async throws -> HostedPlugin { try await loadPlugin(type: "aumf", subtype: "PlVo") }
+
+/// The plugin of a unit registered with `registerFollowedUnit`.
+func followedUnit(_ subtype: String) -> PluginID {
+    registerFollowedUnit(subtype: subtype)
+    return PluginID(type: "aufx", subtype: subtype, manufacturer: "Plug")
+}
+
+/// The first time a unit of `subtype` went through `step`. Gives up after a few seconds, so a step that
+/// never comes fails rather than hangs. Sleeps, so a step queued for the main thread can run.
+func lifeEvent(_ step: UnitLifeStep, subtype: String) async -> UnitLifeEvent? {
+    let deadline = ContinuousClock.now + .seconds(5)
+    while ContinuousClock.now < deadline {
+        if let event = unitLifeEvents(subtype: subtype).first(where: { $0.step == step }) { return event }
+        try? await Task.sleep(for: .milliseconds(5))
+    }
+    return nil
+}
 
 struct EngineHandle: @unchecked Sendable {
     let engine: OpaquePointer
