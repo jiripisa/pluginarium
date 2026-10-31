@@ -114,3 +114,19 @@ struct PluginMenusTests {
         #expect(menu == [.legend("Sidechain in"), .item("Off", action: "off", isCurrent: true), .item("In 1", action: "on")])
     }
 }
+
+struct ConfigurationMenuTests {
+    @Test func marksTheCurrentConfigurationAndKeepsTheRest() {
+        let first = Configuration.fixture(name: "First")
+        let second = Configuration.fixture(name: "Second")
+        let entries = PluginMenus.configurations([first, second], current: second.id)
+        #expect(entries == [
+            .legend("Load configuration"),
+            .item("First", action: .load(first.id), isCurrent: false),
+            .item("Second", action: .load(second.id), isCurrent: true),
+            .separator,
+            .item("New configuration", action: .new),
+            .item("Save as", action: .saveAs),
+        ])
+    }
+}

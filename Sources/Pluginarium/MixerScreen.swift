@@ -56,6 +56,8 @@ private struct AddColumn: View {
 private struct TopBar: View {
     let model: AppModel
 
+    @State private var anchor = CGRect.zero
+
     var body: some View {
         HStack(spacing: 12) {
             configurationMenu
@@ -80,23 +82,8 @@ private struct TopBar: View {
     }
 
     private var configurationMenu: some View {
-        Menu {
-            Section("Load configuration") {
-                ForEach(model.configurations) { configuration in
-                    Button {
-                        model.leave { model.load(configuration) }
-                    } label: {
-                        if configuration.id == model.session?.configuration.id {
-                            Label(configuration.name, systemImage: "checkmark")
-                        } else {
-                            Text(configuration.name)
-                        }
-                    }
-                }
-            }
-            Divider()
-            Button("New configuration") { model.leave { model.newConfiguration() } }
-            Button("Save as") { model.beginSaveAs() }
+        Button {
+            model.showConfigurationMenu(anchor: anchor)
         } label: {
             HStack(spacing: 6) {
                 Text(name)
@@ -112,10 +99,9 @@ private struct TopBar: View {
             }
             .contentShape(Rectangle())
         }
-        .menuStyle(.button)
         .buttonStyle(.plain)
-        .menuIndicator(.hidden)
         .fixedSize()
+        .panelMenuAnchor($anchor)
     }
 
     @ViewBuilder private var saveState: some View {

@@ -130,6 +130,15 @@ A standalone effect takes signal from an audio input and sends it to an audio ou
 
 Plugins with tempo sync follow the MIDI clock from the source chosen in Settings. Example: ZEN Delay on a channel follows the Hapax.
 
+Plugins never receive MIDI clock messages. The app reads the clock and gives each plugin the tempo, the position and whether the transport is playing.
+
+Each channel and each insert effect has a Follow Start/Stop switch, saved in the configuration (decided by the owner). Tempo always reaches the plugin.
+
+- On: the plugin sees tempo and transport, so an arpeggiator or internal sequencer runs with the Hapax.
+- Off: the plugin sees tempo only, and to it the transport is always stopped. A delay keeps its tempo, and an internal sequencer stays still. Example: a TB-303 plugin stays silent when the Hapax starts, unless it gets notes.
+
+The switch starts off on instruments and on on effects, so a sequencer never starts a part the owner did not ask for. Notes and controllers follow the channel's MIDI in, whatever the switch says.
+
 ### Presets
 
 A preset is a named snapshot of a plugin's state, stored per plugin and available in every configuration.

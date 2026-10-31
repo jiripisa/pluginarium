@@ -294,7 +294,9 @@ final class AppModel {
     /// The routing a new channel of `kind` starts with.
     func newRouting(for kind: PluginKind) -> AddRouting {
         let configuration = session?.configuration ?? Configuration(name: "")
-        return AddRouting(defaults: defaultRouting(for: kind, in: configuration, settings: settings), kind: kind)
+        let defaults = defaultRouting(for: kind, in: configuration, settings: settings)
+            .fitting(deviceInputs: deviceInputs, deviceOutputs: deviceOutputs, kind: kind, in: configuration)
+        return AddRouting(defaults: defaults, kind: kind)
     }
 
     private func openAdd(_ target: AddTarget) {
@@ -398,6 +400,19 @@ final class AppModel {
 
     func closeMenu() {
         menu = nil
+    }
+
+    /// The name in the top bar: the configurations to load, the current one marked.
+    func showConfigurationMenu(anchor: CGRect) {
+        showMenu(PluginMenus.configurations(configurations, current: session?.configuration.id), anchor: anchor) { [weak self] action in
+            switch action {
+            case .load(let id):
+                guard let configuration = self?.configurations.first(where: { $0.id == id }) else { return }
+                self?.leave { self?.load(configuration) }
+            case .new: self?.leave { self?.newConfiguration() }
+            case .saveAs: self?.beginSaveAs()
+            }
+        }
     }
 
     /// Preset selector of a channel, and Presets in the menu of an effect.

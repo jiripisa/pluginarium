@@ -97,6 +97,42 @@ public func defaultRouting(for kind: PluginKind, in configuration: Configuration
     }
 }
 
+extension RoutingDefaults {
+    /// These defaults made to fit the running device, for a new channel of `kind` in `configuration`.
+    /// A route the device has stays as it is. One it lacks becomes the first stereo pair of the device
+    /// that no channel uses, or else channels 1-2. With no device running (no outputs) nothing changes,
+    /// and with no inputs the audio in stays as defaulted, so the field shows the fault.
+    public func fitting(deviceInputs: Int, deviceOutputs: Int, kind: PluginKind, in configuration: Configuration) -> RoutingDefaults {
+        guard deviceOutputs > 0 else { return self }
+        var fitted = self
+        if let audioOut, !audioOut.fits(channels: deviceOutputs) {
+            fitted.audioOut = Self.freePair(of: deviceOutputs, used: configuration.channels.map(\.audioOut))
+        }
+        if kind == .effect, deviceInputs > 0, let audioIn, !audioIn.fits(channels: deviceInputs) {
+            fitted.audioIn = Self.freePair(of: deviceInputs, used: configuration.channels.compactMap(\.audioIn))
+        }
+        return fitted
+    }
+
+    private static func freePair(of count: Int, used: [AudioChannels]) -> AudioChannels {
+        let taken = Set(used.flatMap(\.channels))
+        let free = stride(from: 0, to: max(count - 1, 0), by: 2).first { !taken.contains($0) && !taken.contains($0 + 1) }
+        return .stereo(left: free ?? 0, right: (free ?? 0) + 1)
+    }
+}
+
+private extension AudioChannels {
+    var channels: [Int] {
+        switch self {
+        case .mono(let channel): [channel]
+        case .stereo(let left, let right): [left, right]
+        }
+    }
+
+    /// Whether a device with `count` channels has all of these.
+    func fits(channels count: Int) -> Bool { channels.allSatisfy { $0 < count } }
+}
+
 private extension Array {
     /// The element at `index`, or the last one when `index` is past the end; nil when empty.
     subscript(clamped index: Int) -> Element? {

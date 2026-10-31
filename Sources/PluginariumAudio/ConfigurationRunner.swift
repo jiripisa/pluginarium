@@ -290,7 +290,8 @@ public final class ConfigurationRunner {
     /// plugins do this one at a time, in the order they asked, with a chance to draw before each.
     ///
     /// A turn ends when its plugin next lets go of the main actor, not when its load has finished, so
-    /// a load that never ends holds up no other plugin.
+    /// an asynchronous load that never ends holds up no other. A version 2 unit stuck in `Open` freezes
+    /// the app, because its instantiation is synchronous on the main thread.
     private func takeTurn() async {
         let ahead = lastTurn
         let turn = Task {

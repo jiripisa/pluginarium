@@ -1,6 +1,7 @@
 import AppKit
 import AudioToolbox
 import Foundation
+import Synchronization
 import PluginariumCore
 import PluginariumTestUnits
 import Testing
@@ -62,18 +63,23 @@ struct HostingTests {
     @Test("The owner of a plugin's view goes with the plugin, on the main thread")
     func viewOwnerGoesOnTheMainThread() async throws {
         let holder = PluginHolder(try await HostedPlugin.load(followedUnit("PlH4")))
-        let wentOnMainThread = await withCheckedContinuation { continuation in
-            holder.plugin?.viewOwner = ViewOwnerStandIn { continuation.resume(returning: $0) }
-            _ = letGoOnAnotherThread(holder)
+        let wentOnMainThread = Atomic<Int>(0)  // 0 not yet, 1 main thread, 2 elsewhere.
+        holder.plugin?.viewOwner = ViewOwnerStandIn { wentOnMainThread.store($0 ? 1 : 2, ordering: .relaxed) }
+        _ = letGoOnAnotherThread(holder)
+        // Polls to a deadline, so an owner that never goes fails the test rather than hangs it.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while wentOnMainThread.load(ordering: .relaxed) == 0, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
         }
-        #expect(wentOnMainThread)
+        #expect(wentOnMainThread.load(ordering: .relaxed) == 1)
     }
 
     @Test("A plugin let go of on the main thread is disposed there")
     func releaseOnTheMainThread() async throws {
         let holder = PluginHolder(try await HostedPlugin.load(followedUnit("PlH3")))
         holder.plugin = nil
-        #expect(await lifeEvent(.destroyed, subtype: "PlH3")?.onMainThread == true)
+        // At once, not later: `shutDown` relies on the plugin being gone before it destroys the engine.
+        #expect(unitLifeEvents(subtype: "PlH3").contains { $0.step == .destroyed && $0.onMainThread })
     }
 
     @Test("State round-trips on Apple's delay")

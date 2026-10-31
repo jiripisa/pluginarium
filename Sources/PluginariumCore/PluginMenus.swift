@@ -1,3 +1,5 @@
+import Foundation
+
 /// One line of a menu on the panel, `.menu` of `ui-prototype/styles.css`.
 public enum MenuEntry<Action> {
     case legend(String)
@@ -19,6 +21,12 @@ public enum MenuEntry<Action> {
 extension MenuEntry: Equatable where Action: Equatable {}
 extension MenuEntry: Sendable where Action: Sendable {}
 
+
+public enum ConfigurationMenuAction: Equatable, Sendable {
+    case load(UUID)
+    case new
+    case saveAs
+}
 
 public enum EffectMenuAction: Equatable, Sendable {
     case togglePlugin
@@ -74,6 +82,13 @@ public enum PluginMenus {
         }
         entries.append(.item("Save as preset", action: .save))
         return entries
+    }
+
+    /// The configurations to load, the current one marked, then New configuration and Save as.
+    public static func configurations(_ configurations: [Configuration], current: UUID?) -> [MenuEntry<ConfigurationMenuAction>] {
+        [.legend("Load configuration")]
+            + configurations.map { .item($0.name, action: .load($0.id), isCurrent: $0.id == current) }
+            + [.separator, .item("New configuration", action: .new), .item("Save as", action: .saveAs)]
     }
 
     /// Off, then the device's inputs. A sidechain the configuration holds stays listed.
