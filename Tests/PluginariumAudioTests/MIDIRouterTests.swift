@@ -445,6 +445,27 @@ struct MIDIRouterTests {
         expectLevel(rig.render()[0], 0.25)
     }
 
+    @Test func closingCutsTheRouterOffFromTheEngine() async throws {
+        try await withRouter(try await twoInstruments()) { router, rig in
+            router.setRoutes([target("A", .all, slot: 0)])
+            router.setClockSource("A")
+            router.close()
+            #expect(router.isClosed)
+
+            router.handle(noteOnChannel1, fromSource: "A", at: 0)
+            expectLevel(rig.render()[0], 0)
+
+            router.setRoutes([target("A", .all, slot: 0)])
+            router.setClockSource("A")
+            router.handle(noteOnChannel1, fromSource: "A", at: 0)
+            sendTicks(router)
+            router.refreshClock(at: 2)
+            expectLevel(rig.render()[0], 0)
+            #expect(!router.clockRunning)
+            #expect(router.sources.isEmpty)
+        }
+    }
+
     // MARK: - Sources
 
     @Test func connectionsFollowTheSystemsSources() {

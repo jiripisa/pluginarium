@@ -77,6 +77,10 @@ public final class AudioEngine {
     /// then read as silence.
     public private(set) var inputPermissionDenied = false
 
+    /// True while a render can reach the graph, whatever `state` says: audio runs, or a device would
+    /// not stop. A plugin that a render can reach must not be released then.
+    public var canRender: Bool { stream != nil }
+
     /// Called on the main actor after `state` changes, when channel counts may have changed. It can
     /// call `stop` or `start`.
     @ObservationIgnored public var onDeviceChange: (() -> Void)?

@@ -67,8 +67,22 @@ public final class MIDIRouter {
         routing.close()
     }
 
+    /// Past this, nothing reaches the engine, so the engine can go.
+    public private(set) var isClosed = false
+
+    /// Lets go of every source and stops the clock poll. The router does nothing after this.
+    public func close() {
+        guard !isClosed else { return }
+        isClosed = true
+        clockPoll?.cancel()
+        input = nil
+        routing.close()
+        sources = []
+    }
+
     /// Applies at once: the next event goes by these routes.
     public func setRoutes(_ routes: [MIDIRouteTarget]) {
+        guard !isClosed else { return }
         routing.setRoutes(routes)
     }
 
@@ -76,6 +90,7 @@ public final class MIDIRouter {
     /// starts over: its transport is stopped until it says otherwise, and plugins keep the last
     /// known tempo until it gives one.
     public func setClockSource(_ name: String?) {
+        guard !isClosed else { return }
         routing.setClockSource(name)
         refreshClock(at: routing.hostSeconds())
     }

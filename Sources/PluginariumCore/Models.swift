@@ -175,3 +175,10 @@ public struct Configuration: Codable, Equatable, Identifiable, Sendable {
         self.channels = channels
     }
 }
+
+extension Configuration {
+    /// The plugin of each channel, for a list of configurations.
+    public var summary: String {
+        channels.isEmpty ? "Empty" : channels.map(\.slot.displayName).joined(separator: ", ")
+    }
+}

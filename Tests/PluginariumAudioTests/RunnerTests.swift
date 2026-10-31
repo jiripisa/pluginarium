@@ -652,6 +652,75 @@ struct RunnerTests {
         }
     }
 
+    @Test func anAbandonedRunnerKeepsItsPluginsAndDoesNothingMore() async throws {
+        try await withRunner { runner, rig in
+            pr_engine_set_audio_running(rig.engine, true)
+            defer { pr_engine_set_audio_running(rig.engine, false) }
+            let channel = instrumentChannel()
+            await runner.apply(configuration(channel))
+            _ = rig.render()
+            let removed = instrumentChannel(out: out23)
+            await runner.apply(configuration(channel, removed))
+            _ = rig.render()
+            weak let plugin = runner.plugin(channel: removed.id, effect: nil)
+            await runner.apply(configuration(channel))
+            _ = rig.render()
+
+            var installs = 0
+            runner.seams.installGraph = { _, _, _ in
+                installs += 1
+                return 0
+            }
+            runner.abandon()
+            runner.collectRetired()
+            #expect(plugin != nil, "a stuck render may still be in it")
+
+            await runner.apply(configuration())
+            #expect(installs == 0)
+            #expect(plugin != nil)
+        }
+    }
+
+    @Test func abandoningEndsTheWaitForALoadAndDiscardsIt() async throws {
+        try await withRunner { runner, _ in
+            let gate = gated(runner)
+            var installs = 0
+            runner.seams.installGraph = { _, _, _ in
+                installs += 1
+                return 0
+            }
+            let channel = instrumentChannel()
+            let applying = Task { await runner.apply(configuration(channel)) }
+            await gate.waitUntilRequested(1)
+            let installsBefore = installs
+
+            runner.abandon()
+            await applying.value
+            await gate.open(instrumentID)
+            await finishLoads(runner)
+
+            #expect(installs == installsBefore)
+            #expect(runner.plugin(channel: channel.id, effect: nil) == nil)
+        }
+    }
+
+    @Test func slotsAreAnnouncedBeforeAPluginHasLoaded() async throws {
+        try await withRunner { runner, _ in
+            let gate = gated(runner)
+            let channel = instrumentChannel()
+            var announced: Int32?
+            runner.onMIDISlotsAssigned = { announced = runner.midiSlot(channel: channel.id) }
+
+            let applying = Task { await runner.apply(configuration(channel)) }
+            await gate.waitUntilRequested(1)
+            #expect(announced == 0)
+            #expect(runner.plugin(channel: channel.id, effect: nil) == nil)
+
+            await gate.open(instrumentID)
+            await applying.value
+        }
+    }
+
     @Test func applyCollectsWhatIsSafeAtItsStart() async throws {
         try await withRunner { runner, rig in
             pr_engine_set_audio_running(rig.engine, true)

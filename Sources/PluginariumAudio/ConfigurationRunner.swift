@@ -51,6 +51,10 @@ public final class ConfigurationRunner {
 
     public private(set) var status: [UUID: ChannelStatus] = [:]
 
+    /// Called during `apply` once `midiSlot` answers for the new configuration. A plugin may still
+    /// take seconds to load, and `apply` returns only after that.
+    public var onMIDISlotsAssigned: (() -> Void)?
+
     var seams = Seams()
     var pendingLoads: Int { loads.count }
 
@@ -113,6 +117,7 @@ public final class ConfigurationRunner {
         assignMIDISlots()
         installGraph()
         updateStatus()
+        onMIDISlotsAssigned?()
 
         resumeSettled()
         if !isSettled {
@@ -158,6 +163,16 @@ public final class ConfigurationRunner {
         guard !isShutDown else { return }
         retired.removeAll { pr_engine_is_generation_taken(engine, $0.generation) }
         pr_engine_collect_garbage(engine)
+    }
+
+    /// For audio that would not stop: a render may still be inside any plugin here, so `shutDown`
+    /// cannot run. The runner does nothing after this and holds on to every plugin it has, so whoever
+    /// calls this has to keep it for as long as that render can last.
+    public func abandon() {
+        guard !isShutDown else { return }
+        isShutDown = true
+        wanted = [:]
+        resumeSettled()
     }
 
     /// Call after audio has stopped and before destroying the engine. Installs an empty graph and

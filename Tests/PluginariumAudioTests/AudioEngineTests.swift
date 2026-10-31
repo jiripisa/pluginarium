@@ -460,6 +460,22 @@ struct AudioEngineTests {
         #expect(pr_engine_load(renderEngine) == 0)
     }
 
+    @Test("A stream that runs, or would not stop, can still render")
+    func canRenderFollowsTheStream() throws {
+        let bench = Bench()
+        #expect(!bench.engine.canRender)
+        try bench.engine.start(settings: settings(for: bench.devices[0]))
+        #expect(bench.engine.canRender)
+
+        bench.opened[0].stopsInTime = false
+        bench.engine.stop()
+        #expect(bench.engine.canRender)
+
+        bench.opened[0].stopsInTime = true
+        bench.engine.stop()
+        #expect(!bench.engine.canRender)
+    }
+
     // MARK: - Device changes
 
     @Test("Losing the running device stops it and reports it missing")
