@@ -41,8 +41,9 @@ public final class AudioSession {
 
     /// Called while the running plugins still exist, each time they are about to go with their runner.
     /// A view of a plugin must be gone by then, and a new runner makes new plugins, so a view of an
-    /// old one would show nothing that plays.
-    @ObservationIgnored public var willReleasePlugins: (() -> Void)?
+    /// old one would show nothing that plays. `canReadState` is false when a stream would not stop,
+    /// since a render may then still be inside any plugin.
+    @ObservationIgnored public var willReleasePlugins: ((_ canReadState: Bool) -> Void)?
 
     /// The apply a device change started, since the engine's callback cannot wait for it.
     @ObservationIgnored var reapplying: Task<Void, Never>?
@@ -245,7 +246,7 @@ public final class AudioSession {
     /// state, so then nothing is read and the runner is kept for good.
     private func releaseRunner() {
         guard let runner else { return }
-        willReleasePlugins?()
+        willReleasePlugins?(!engine.canRender)
         self.runner = nil
         runnerValues = nil
         router.setRoutes([])

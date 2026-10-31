@@ -56,6 +56,12 @@ final class AppModel {
         }
     }
 
+    /// Dialogs and Settings are part of the mixer window, and plugin windows sit above it, so these
+    /// step aside for as long as one of those shows. A save question has to come through `dialog`.
+    var hidesPluginWindows: Bool {
+        dialog != nil || nameDialog != nil || addModel != nil || screen == .settings
+    }
+
     private(set) var audio: AudioSession?
     /// Goes up each time a preset is saved.
     private var presetChanges = 0
@@ -470,7 +476,12 @@ final class AppModel {
     private func audioSession() -> AudioSession {
         if let audio { return audio }
         let audio = AudioSession(cache: cache)
-        audio.willReleasePlugins = { [weak self] in self?.pluginWindows.closeAll() }
+        audio.willReleasePlugins = { [weak self] canReadState in
+            guard let self else { return }
+            // Audio keeps the sound for the new plugins, but the configuration has to hear of it.
+            if canReadState { pluginWindows.noteChanges() }
+            pluginWindows.closeAll()
+        }
         self.audio = audio
         return audio
     }

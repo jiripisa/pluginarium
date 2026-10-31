@@ -12,6 +12,7 @@ final class PluginWindows {
     private var windows: [PluginLocation: PluginWindow] = [:]
 
     @ObservationIgnored private var opened = 0
+    @ObservationIgnored private var isHidden = false
     @ObservationIgnored private unowned let app: AppModel
 
     init(app: AppModel) {
@@ -30,13 +31,25 @@ final class PluginWindows {
             return
         }
         guard let plugin = app.hostedPlugin(at: location), let slot = app.session?.configuration.slot(at: location) else { return }
-        let window = PluginWindow(plugin: plugin, title: slot.displayName, cascade: opened) { [weak self] opened, closed in
+        let window = PluginWindow(plugin: plugin, title: slot.displayName, cascade: opened, isHidden: isHidden) { [weak self] opened, closed in
             self?.windows[location] = nil
             self?.app.notePluginState(at: location, opened: opened, closed: closed)
         }
         opened += 1
         windows[location] = window
         Task { await window.show() }
+    }
+
+    /// Takes the windows off the screen and brings them back where they were. They stay open all the
+    /// while, and one that closes in the meantime stays closed.
+    func setHidden(_ hidden: Bool) {
+        guard hidden != isHidden else { return }
+        isHidden = hidden
+        if hidden {
+            windows.values.forEach { $0.hide() }
+        } else {
+            windows.values.sorted { $0.stackPosition > $1.stackPosition }.forEach { $0.reveal() }
+        }
     }
 
     /// Reads what the open windows have done to their plugins, without closing them.
@@ -65,22 +78,27 @@ private final class PluginWindow: NSObject, NSWindowDelegate {
     let plugin: HostedPlugin
     /// What the plugin was doing when the window opened.
     let stateOnOpening: Data?
+    /// Where it stood among the app's windows when it was hidden, front first.
+    private(set) var stackPosition = 0
 
     private let title: String
     private let cascade: Int
     private let onClose: (_ opened: Data?, _ closed: Data?) -> Void
     private var window: NSWindow?
     private var view: NSView?
+    private weak var mixer: NSWindow?
     private var preferredSize: NSKeyValueObservation?
+    private var isHidden: Bool
     private var isOpening = true
     private var isClosed = false
     private var readsStateOnClose = true
 
-    init(plugin: HostedPlugin, title: String, cascade: Int, onClose: @escaping (_ opened: Data?, _ closed: Data?) -> Void) {
+    init(plugin: HostedPlugin, title: String, cascade: Int, isHidden: Bool, onClose: @escaping (_ opened: Data?, _ closed: Data?) -> Void) {
         self.plugin = plugin
         stateOnOpening = try? plugin.fullState()
         self.title = title
         self.cascade = cascade
+        self.isHidden = isHidden
         self.onClose = onClose
     }
 
@@ -105,7 +123,10 @@ private final class PluginWindow: NSObject, NSWindowDelegate {
         self.view = view
         follow(view)
         place(window)
-        window.makeKeyAndOrderFront(nil)
+        if !isHidden {
+            attach(window)
+            window.makeKeyAndOrderFront(nil)
+        }
     }
 
     /// Closes it as Close plugin and the red button do. A window still waiting for its view stays,
@@ -113,15 +134,29 @@ private final class PluginWindow: NSObject, NSWindowDelegate {
     func close() {
         guard !isOpening else { return }
         window?.close()
+        // A window that is off the screen may not hear of its own closing.
+        finish()
     }
 
     func closeWithoutReadingState() {
         readsStateOnClose = false
-        if isOpening {
-            finish()
-        } else {
-            window?.close()
-        }
+        window?.close()
+        finish()
+    }
+
+    func hide() {
+        isHidden = true
+        guard let window else { return }
+        stackPosition = window.orderedIndex
+        let hadKeyboard = window.isKeyWindow
+        mixer?.removeChildWindow(window)
+        window.orderOut(nil)
+        if hadKeyboard { mixer?.makeKey() }
+    }
+
+    func reveal() {
+        isHidden = false
+        if let window { attach(window) }
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -149,15 +184,21 @@ private final class PluginWindow: NSObject, NSWindowDelegate {
         return note
     }
 
-    /// The prototype's cascade over the mixer. The child stays above the mixer at the normal level.
+    /// The prototype's cascade over the mixer.
     private func place(_ window: NSWindow) {
         guard let mixer = NSApp.mainWindow.map({ $0.parent ?? $0 }) else {
             window.center()
             return
         }
+        self.mixer = mixer
         let offset = PanelLayout.pluginWindowOffset(cascade)
         window.setFrameTopLeftPoint(NSPoint(x: mixer.frame.minX + offset.x, y: mixer.frame.maxY - offset.y))
-        mixer.addChildWindow(window, ordered: .above)
+    }
+
+    /// As a child it stays above the mixer at the normal level.
+    private func attach(_ window: NSWindow) {
+        mixer?.addChildWindow(window, ordered: .above)
+        window.orderFront(nil)
     }
 
     /// A plugin resizes by changing its view's frame or its controller's preferred size.

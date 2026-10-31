@@ -51,7 +51,7 @@ struct ChannelView: View {
 
     /// A fault of an effect shows on the effect, and the channel's own plugin plays on.
     private var isFaultOfAnEffect: Bool {
-        guard case .loadFailed(let message) = status else { return false }
+        guard isHosted, case .loadFailed(let message) = status else { return false }
         return channel.effects.joined().contains { audio?.runner?.failure(effect: $0.id) == message }
     }
 

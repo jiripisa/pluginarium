@@ -826,15 +826,63 @@ struct AudioSessionTests {
         let channel = instrumentChannel()
         await bench.session.open(configuration(channel), settings: .defaults)
         var plugins: [HostedPlugin?] = []
-        bench.session.willReleasePlugins = {
+        var readable: [Bool] = []
+        bench.session.willReleasePlugins = { canReadState in
             plugins.append(bench.session.runner?.plugin(channel: channel.id, effect: nil))
+            readable.append(canReadState)
         }
 
         bench.loseDevices()
 
         #expect(plugins.count == 1)
         #expect(plugins.first.flatMap { $0 } != nil)
+        #expect(readable == [true])
         #expect(bench.session.runner == nil)
+    }
+
+    @Test("A plugin may be read when its stream stopped, right when the warning comes")
+    func aStoppedStreamLeavesStateReadable() async throws {
+        let bench = Bench()
+        defer { bench.session.close() }
+        let channel = delayChannel()
+        await bench.session.open(configuration(channel), settings: .defaults)
+        try setWetDryMix(of: bench.session.runner?.plugin(channel: channel.id, effect: nil), to: 12)
+        var read: Data?
+        bench.session.willReleasePlugins = { canReadState in
+            guard canReadState else { return }
+            read = try? bench.session.runner?.plugin(channel: channel.id, effect: nil)?.fullState()
+        }
+
+        bench.loseDevices()
+
+        let state = try #require(read)
+        await bench.bringDevice(device("b"))
+        #expect(try wetDryMix(of: bench.session.runner?.plugin(channel: channel.id, effect: nil)) == 12)
+        #expect(bench.session.capturingState(of: configuration(channel)).channels[0].slot.state == state)
+    }
+
+    @Test("A stream that will not stop says state must not be read, on a lost device and at a restart")
+    func aStuckStreamLeavesStateUnreadable() async throws {
+        let first = device("a")
+        let second = device("b")
+
+        let lost = Bench()
+        lost.prepare = { $0.stopsInTime = false }
+        await lost.session.open(configuration(instrumentChannel()), settings: .defaults)
+        var toldLost: [Bool] = []
+        lost.session.willReleasePlugins = { toldLost.append($0) }
+        lost.loseDevices()
+        #expect(toldLost == [false])
+        lost.session.close()
+
+        let restarted = Bench(devices: [first, second])
+        restarted.prepare = { $0.stopsInTime = false }
+        await restarted.session.open(configuration(instrumentChannel()), settings: settings(for: first))
+        var toldRestarted: [Bool] = []
+        restarted.session.willReleasePlugins = { toldRestarted.append($0) }
+        await restarted.session.applySettings(settings(for: second))
+        #expect(toldRestarted == [false])
+        restarted.session.close()
     }
 
     @Test("Whoever shows a plugin hears before a new device takes it")
@@ -847,13 +895,16 @@ struct AudioSessionTests {
         await bench.session.open(configuration(channel), settings: settings(for: first))
         let old = try #require(bench.session.runner?.plugin(channel: channel.id, effect: nil))
         var told: [Bool] = []
-        bench.session.willReleasePlugins = {
+        var readable: [Bool] = []
+        bench.session.willReleasePlugins = { canReadState in
             told.append(bench.session.runner?.plugin(channel: channel.id, effect: nil) === old)
+            readable.append(canReadState)
         }
 
         await bench.session.applySettings(settings(for: second))
 
         #expect(told == [true])
+        #expect(readable == [true])
         #expect(bench.session.runner?.plugin(channel: channel.id, effect: nil) !== old)
     }
 
@@ -863,7 +914,7 @@ struct AudioSessionTests {
         let channel = instrumentChannel()
         await bench.session.open(configuration(channel), settings: .defaults)
         var calls = 0
-        bench.session.willReleasePlugins = { calls += 1 }
+        bench.session.willReleasePlugins = { _ in calls += 1 }
 
         bench.session.close()
 
