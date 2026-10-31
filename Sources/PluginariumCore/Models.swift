@@ -1,3 +1,6 @@
+import Foundation
+
+
 /// Identifies an Audio Unit by its component description, as four-character codes.
 public struct PluginID: Hashable, Codable, Sendable {
     public var type: String
@@ -69,5 +72,98 @@ public struct PluginInfo: Codable, Identifiable, Sendable {
         self.name = name
         self.vendor = vendor
         self.kind = kind
+    }
+}
+
+/// Device audio channels, zero-based.
+public enum AudioChannels: Codable, Hashable, Sendable {
+    case mono(Int)
+    case stereo(left: Int, right: Int)
+}
+
+/// Which MIDI channel of a source is used: all of them, or one from 1 to 16.
+public enum MIDIChannelFilter: Codable, Hashable, Sendable {
+    case all
+    case channel(Int)
+}
+
+public struct MIDIRoute: Codable, Hashable, Sendable {
+    public var sourceName: String
+    public var channel: MIDIChannelFilter
+
+    public init(sourceName: String, channel: MIDIChannelFilter) {
+        self.sourceName = sourceName
+        self.channel = channel
+    }
+}
+
+/// A plugin instance with its display name, preset name and saved state.
+public struct PluginSlot: Codable, Equatable, Sendable {
+    public var plugin: PluginID
+    public var displayName: String
+    public var presetName: String?
+    public var state: Data?
+
+    public init(plugin: PluginID, displayName: String, presetName: String? = nil, state: Data? = nil) {
+        self.plugin = plugin
+        self.displayName = displayName
+        self.presetName = presetName
+        self.state = state
+    }
+}
+
+public struct InsertEffect: Codable, Equatable, Identifiable, Sendable {
+    public var id: UUID
+    public var slot: PluginSlot
+    public var sidechainIn: AudioChannels?
+
+    public init(id: UUID = UUID(), slot: PluginSlot, sidechainIn: AudioChannels? = nil) {
+        self.id = id
+        self.slot = slot
+        self.sidechainIn = sidechainIn
+    }
+}
+
+public struct Channel: Codable, Equatable, Identifiable, Sendable {
+    public var id: UUID
+    public var kind: PluginKind
+    public var slot: PluginSlot
+    public var midiIn: MIDIRoute?
+    public var audioIn: AudioChannels?
+    public var sidechainIn: AudioChannels?
+    public var audioOut: AudioChannels
+    /// Rows run in series; effects within a row run in parallel.
+    public var effects: [[InsertEffect]]
+
+    public init(
+        id: UUID = UUID(),
+        kind: PluginKind,
+        slot: PluginSlot,
+        midiIn: MIDIRoute? = nil,
+        audioIn: AudioChannels? = nil,
+        sidechainIn: AudioChannels? = nil,
+        audioOut: AudioChannels,
+        effects: [[InsertEffect]] = []
+    ) {
+        self.id = id
+        self.kind = kind
+        self.slot = slot
+        self.midiIn = midiIn
+        self.audioIn = audioIn
+        self.sidechainIn = sidechainIn
+        self.audioOut = audioOut
+        self.effects = effects
+    }
+}
+
+public struct Configuration: Codable, Equatable, Identifiable, Sendable {
+    public var id: UUID
+    public var name: String
+    public var channels: [Channel]
+
+    public init(id: UUID = UUID(), name: String, channels: [Channel] = []) {
+        self.id = id
+        self.name = name
+        self.channels = channels
     }
 }
