@@ -128,29 +128,78 @@ public final class SettingsStore {
     }
 }
 
-/// Plugin capabilities remembered between launches; writes through on every change.
+/// Plugin capabilities remembered between launches, with the factory presets the plugin lists;
+/// writes through on every change. A file from before factory presets still reads.
 public final class CapabilityCache {
+    private struct Entry: Codable {
+        var capabilities: PluginCapabilities
+        var factoryPresets: [String]?
+
+        private enum Keys: String, CodingKey {
+            case acceptsMIDI, hasAudioIn, hasSidechain, factoryPresets
+        }
+
+        init(capabilities: PluginCapabilities, factoryPresets: [String]?) {
+            self.capabilities = capabilities
+            self.factoryPresets = factoryPresets
+        }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: Keys.self)
+            capabilities = PluginCapabilities(
+                acceptsMIDI: try values.decode(Bool.self, forKey: .acceptsMIDI),
+                hasAudioIn: try values.decode(Bool.self, forKey: .hasAudioIn),
+                hasSidechain: try values.decode(Bool.self, forKey: .hasSidechain)
+            )
+            factoryPresets = try values.decodeIfPresent([String].self, forKey: .factoryPresets)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var values = encoder.container(keyedBy: Keys.self)
+            try values.encode(capabilities.acceptsMIDI, forKey: .acceptsMIDI)
+            try values.encode(capabilities.hasAudioIn, forKey: .hasAudioIn)
+            try values.encode(capabilities.hasSidechain, forKey: .hasSidechain)
+            try values.encodeIfPresent(factoryPresets, forKey: .factoryPresets)
+        }
+    }
+
     private let file: URL
-    private var entries: [String: PluginCapabilities]
+    private var entries: [String: Entry]
 
     public init(file: URL) {
         self.file = file
-        entries = read([String: PluginCapabilities].self, from: file) ?? [:]
+        entries = read([String: Entry].self, from: file) ?? [:]
     }
 
     private static func key(_ id: PluginID) -> String {
         [id.type, id.subtype, id.manufacturer].joined(separator: "\u{0}")
     }
 
+    /// Setting keeps the factory presets already known.
     public subscript(id: PluginID) -> PluginCapabilities? {
-        get { entries[Self.key(id)] }
+        get { entries[Self.key(id)]?.capabilities }
         set {
-            entries[Self.key(id)] = newValue
-            do {
-                try write(entries, to: file)
-            } catch {
-                logger.error("Cannot write capability cache: \(error.localizedDescription, privacy: .public)")
-            }
+            let key = Self.key(id)
+            entries[key] = newValue.map { Entry(capabilities: $0, factoryPresets: entries[key]?.factoryPresets) }
+            save()
+        }
+    }
+
+    /// Nil until the plugin has been probed.
+    public func factoryPresets(for id: PluginID) -> [String]? {
+        entries[Self.key(id)]?.factoryPresets
+    }
+
+    public func store(_ capabilities: PluginCapabilities, factoryPresets: [String], for id: PluginID) {
+        entries[Self.key(id)] = Entry(capabilities: capabilities, factoryPresets: factoryPresets)
+        save()
+    }
+
+    private func save() {
+        do {
+            try write(entries, to: file)
+        } catch {
+            logger.error("Cannot write capability cache: \(error.localizedDescription, privacy: .public)")
         }
     }
 }

@@ -51,13 +51,8 @@ struct ChannelView: View {
         }
     }
 
-    private var deviceInputs: Int {
-        if case .running(let device)? = audio?.engine.state { device.inputChannels.count } else { 0 }
-    }
-
-    private var deviceOutputs: Int {
-        if case .running(let device)? = audio?.engine.state { device.outputChannels.count } else { 0 }
-    }
+    private var deviceInputs: Int { model.deviceInputs }
+    private var deviceOutputs: Int { model.deviceOutputs }
 
     private func edit(_ change: @escaping (inout Channel) -> Void) {
         let id = channel.id

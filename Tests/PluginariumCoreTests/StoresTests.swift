@@ -82,3 +82,39 @@ private let vasc = PluginID(type: "aumu", subtype: "VasC", manufacturer: "RoCl")
 @Test func appPathsBaseIsPluginariumApplicationSupport() {
     #expect(AppPaths.base().path.hasSuffix("Library/Application Support/Pluginarium"))
 }
+
+@Suite("CapabilityCache presets")
+struct CapabilityCachePresetTests {
+    let plugin = PluginID(type: "aumu", subtype: "Mari", manufacturer: "Test")
+    let caps = PluginCapabilities(acceptsMIDI: true, hasAudioIn: false, hasSidechain: false)
+
+    @Test("Factory presets are remembered with the capabilities")
+    func remembered() throws {
+        let file = try tempDir().appending(path: "capabilities.json")
+        let cache = CapabilityCache(file: file)
+        #expect(cache.factoryPresets(for: plugin) == nil)
+        cache.store(caps, factoryPresets: ["Bell", "Pad"], for: plugin)
+        let again = CapabilityCache(file: file)
+        #expect(again[plugin] == caps)
+        #expect(again.factoryPresets(for: plugin) == ["Bell", "Pad"])
+    }
+
+    @Test("A cache file from before factory presets still reads")
+    func oldFile() throws {
+        let file = try tempDir().appending(path: "capabilities.json")
+        let key = [plugin.type, plugin.subtype, plugin.manufacturer].joined(separator: "\u{0}")
+        let old = try JSONEncoder().encode([key: caps])
+        try old.write(to: file)
+        let cache = CapabilityCache(file: file)
+        #expect(cache[plugin] == caps)
+        #expect(cache.factoryPresets(for: plugin) == nil)
+    }
+
+    @Test("Setting capabilities alone keeps the presets known")
+    func subscriptKeepsPresets() throws {
+        let cache = CapabilityCache(file: try tempDir().appending(path: "capabilities.json"))
+        cache.store(caps, factoryPresets: ["Bell"], for: plugin)
+        cache[plugin] = caps
+        #expect(cache.factoryPresets(for: plugin) == ["Bell"])
+    }
+}

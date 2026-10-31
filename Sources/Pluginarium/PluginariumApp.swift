@@ -28,6 +28,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            let configuration = model.configurations.first(where: { $0.name == arguments[flag + 1] }) {
             model.load(configuration)
         }
+        // For looking at the Add dialog: --add opens a new configuration, and --recent <subtypes>
+        // puts test units (manufacturer "Plug") first in the list, so nothing third party is selected.
+        if let flag = arguments.firstIndex(of: "--recent"), arguments.indices.contains(flag + 1) {
+            let subtypes = arguments[flag + 1].split(separator: ",").map(String.init)
+            model.settings.recentPlugins = subtypes.compactMap { subtype in
+                model.installedPlugins.first { $0.id.subtype == subtype && $0.id.manufacturer == "Plug" }?.id
+            }
+        }
+        if arguments.contains("--add") { model.newConfiguration() }
         #endif
     }
 
@@ -55,6 +64,7 @@ private struct RootView: View {
             }
         }
         .focusEffectDisabled()
+        .addDialog(model)
         .choiceDialog(Binding(get: { model.dialog }, set: { model.dialog = $0 }))
         // The window adds the title bar to this, and its minimum is for the whole window.
         .frame(minWidth: 900, minHeight: 600 - titleBarHeight)
