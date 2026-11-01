@@ -1,0 +1,84 @@
+/* Shared by index.html and manual.html. Colours are tokens; adjust --accent
+   to the app's icon. Light and dark follow the system. */
+:root {
+  /* The panel of the app: cream legends, amber LED, walnut cheeks. */
+  --bg: #f4f1e8;
+  --panel: #fbf9f3;
+  --line: #dcd7c8;
+  --ink: #2a2b2e;
+  --ink2: #4f4e48;
+  --ink3: #6b695f;
+  --accent: #6d4529;
+  --accent-ink: #ffffff;
+  --walnut: #6d4529;
+  --led: #ff8a1f;
+  --led-ink: #191a1c;
+  --measure: 44rem;
+  --gutter: clamp(1rem, 4vw, 3rem);
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #2a2b2e;
+    --panel: #191a1c;
+    --line: #55554f;
+    --ink: #ece8dc;
+    --ink2: #c8c4b7;
+    --ink3: #a9a698;
+    --accent: #ff8a1f;
+    --accent-ink: #191a1c;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-padding-top: 1.5rem; }
+body {
+  margin: 0;
+  background: var(--bg);
+  border-top: 6px solid var(--walnut);
+  color: var(--ink2);
+  font: 1.0625rem/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+a { color: var(--accent); text-underline-offset: .2em; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+code, kbd, pre { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .9em; }
+code { color: var(--ink); }
+b, strong { color: var(--ink); font-weight: 600; }
+img { max-width: 100%; height: auto; }
+.wrap { max-width: 72rem; margin: 0 auto; padding: 0 var(--gutter); }
+
+.masthead { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-block: 1.5rem; }
+.brand { display: flex; align-items: center; gap: .6rem; color: var(--ink); text-decoration: none; font-weight: 650; }
+.brand img { width: 2rem; height: 2rem; }
+.masthead nav { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem 1.4rem; }
+.masthead nav a { color: var(--ink2); text-decoration: none; font-size: .95rem; }
+.masthead nav a:hover, .masthead nav a[aria-current] { color: var(--ink); }
+.masthead nav a.lang { padding: 0 .55rem; border: 1px solid var(--line); border-radius: 999px; font-size: .85rem; }
+
+.hero { padding-block: clamp(2rem, 7vw, 5rem) 3rem; }
+.hero h1 { margin: 0; color: var(--ink); font-size: clamp(2.6rem, 8vw, 5rem); line-height: 1; letter-spacing: -.02em; }
+.lede { max-width: var(--measure); margin: 1.25rem 0 0; font-size: 1.25rem; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 1.5rem; margin-top: 2rem; }
+.button {
+  display: inline-flex; align-items: center; gap: .5rem; padding: .75rem 1.25rem; border-radius: 10px;
+  background: var(--accent); color: var(--accent-ink); font-weight: 650; text-decoration: none;
+}
+.button svg { width: 1.1rem; height: 1.1rem; }
+.meta { color: var(--ink3); font-size: .95rem; }
+.shot { margin: 3rem 0 0; }
+.shot img { display: block; border-radius: 12px; box-shadow: 0 18px 50px rgba(0,0,0,.25), 0 0 0 1px var(--line); }
+
+section { padding-block: 3rem; border-top: 1px solid var(--line); }
+section h2 { margin: 0 0 1rem; color: var(--ink); font-size: clamp(1.6rem, 3.5vw, 2.2rem); line-height: 1.15; }
+section p, section li { max-width: var(--measure); }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 2rem; }
+.grid p { margin-top: 0; }
+.grid h3 { margin: 0 0 .4rem; color: var(--ink); font-size: 1.1rem; }
+pre { overflow-x: auto; padding: 1rem; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); color: var(--ink); }
+
+footer { padding-block: 2.5rem 3rem; color: var(--ink3); font-size: .9rem; border-top: 1px solid var(--line); }
+footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; }
+footer a { color: var(--ink2); }
+
+@media (max-width: 640px) {
+  .masthead nav a:not(.lang):not(:first-child) { display: none; }
+}

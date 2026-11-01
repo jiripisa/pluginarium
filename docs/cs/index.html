@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pluginarium pro macOS</title>
+<meta name="description" content="Tvoje pluginy jako nástroje ve studiu. Pluginarium hostuje Audio Units na Macu v dawless studiu, bez spouštění DAW.">
+<meta property="og:title" content="Pluginarium">
+<meta property="og:description" content="Tvoje pluginy jako nástroje ve studiu.">
+<meta property="og:image" content="https://jiripisa.github.io/pluginarium/assets/pluginarium-window.png">
+<meta property="og:type" content="website">
+<link rel="alternate" hreflang="en" href="https://jiripisa.github.io/pluginarium/">
+<link rel="alternate" hreflang="cs" href="https://jiripisa.github.io/pluginarium/cs/">
+<link rel="alternate" hreflang="x-default" href="https://jiripisa.github.io/pluginarium/">
+<link rel="icon" href="../assets/icon.png">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+
+<header class="wrap masthead">
+  <a class="brand" href="#top"><img src="../assets/icon.png" alt="" width="32" height="32">Pluginarium</a>
+  <nav aria-label="Stránka">
+    <a href="manual.html">Manuál</a>
+    <a href="#get">Stáhnout</a>
+    <a href="https://github.com/jiripisa/pluginarium">GitHub</a>
+    <a class="lang" href="../" hreflang="en" lang="en">English</a>
+  </nav>
+</header>
+
+<main id="top">
+  <div class="wrap hero">
+    <h1>Pluginarium</h1>
+    <p class="lede">Tvoje pluginy jako nástroje ve studiu. S Pluginariem je Mac v dawless
+    sestavě dalším nástrojem: zapnete ho, načtete konfiguraci a hrajete. DAW přitom vůbec
+    nespouštíte.</p>
+    <div class="actions">
+      <a class="button" href="https://github.com/jiripisa/pluginarium/releases/download/v0.1.0/Pluginarium-0.1.0.dmg">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Stáhnout pro macOS
+      </a>
+      <span class="meta">Verze 0.1.0 pro macOS 15 a novější na Apple silicon. <a href="manual.html">Přečtěte si manuál</a>.</span>
+    </div>
+    <figure class="shot">
+      <img src="../assets/pluginarium-window.png" alt="Mixér aplikace Pluginarium se čtyřmi nástrojovými kanály, jejich efekty a audio výstupy" width="1400">
+    </figure>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>Co umí</h2>
+      <div class="grid">
+        <div>
+          <h3>Načtete a hrajete</h3>
+          <p>Aplikace se otevře na seznamu uložených konfigurací. Vyberete jednu a pluginy se
+          načtou i se zvuky a zapojením. Konfigurace se otevře vždycky: chybějící plugin nebo
+          zařízení se ukáže na svém kanálu a ostatní kanály hrají dál.</p>
+        </div>
+        <div>
+          <h3>Sada kanálů</h3>
+          <p>Konfigurace je řada kanálů. V každém je nástrojový plugin nebo samostatný efekt
+          s vlastním MIDI vstupem, audio výstupem a efekty. Efekty běží za sebou, nebo až tři
+          vedle sebe paralelně.</p>
+        </div>
+        <div>
+          <h3>Zapojení podle pluginu</h3>
+          <p>Kanál ukazuje jen ty vstupy, které jeho plugin umí použít: MIDI in, Audio in,
+          Sidechain in. Nový kanál si vezme zapojení z tabulek pozic, které nastavíte jednou,
+          takže jeden plugin na obvyklých výstupech znamená pár písmen a Return.</p>
+        </div>
+        <div>
+          <h3>Součást studia</h3>
+          <p>Samostatný efekt vezme hardwarový syntezátor ze vstupu zvukové karty a pošle ho na
+          její výstup. Pluginy s audio nebo sidechainovým vstupem čtou vstupy zvukové karty.</p>
+        </div>
+        <div>
+          <h3>Řídí se MIDI clockem</h3>
+          <p>Pluginy dostávají tempo ze zdroje MIDI clocku, který si vyberete. Přepínač Follow
+          Start/Stop na každém pluginu určuje, jestli se s clockem rozjede a zastaví i jeho
+          vnitřní sekvencer.</p>
+        </div>
+        <div>
+          <h3>Pojmenované presety</h3>
+          <p>Zvuk pluginu si uložíte pod jménem a použijete ho v každé konfiguraci. Pluginy,
+          které své tovární presety nabízejí přes Audio Unit, je ukážou vedle těch vašich.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="needs">
+    <div class="wrap grid">
+      <div>
+        <h2>Co potřebujete</h2>
+        <ul>
+          <li>macOS 15 nebo novější na Apple silicon.</li>
+          <li>Audio Units. Pluginy VST a VST3 aplikace nehostuje.</li>
+          <li>Zvukové zařízení s výstupy. S více výstupy může mít každý plugin vlastní kanály
+          na mixážním pultu.</li>
+        </ul>
+      </div>
+      <div>
+        <h2>Co v něm není</h2>
+        <p>Pluginarium je hostitel pluginů, ne DAW. Nemá fadery ani panorama, nenahrává,
+        nesekvencuje, nearanžuje a zatím neumí MIDI learn. Hlasitosti řešíte na mixážním pultu
+        a v pluginech. Manuál uvádí <a href="manual.html#limits">omezení této verze</a>.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="get">
+    <div class="wrap grid">
+      <div>
+        <h2>Stáhnout</h2>
+        <p>Obraz disku je podepsaný a notarizovaný Applem, takže se otevře bez
+        bezpečnostních varování. Přetáhněte Pluginarium do složky Aplikace. Pluginy součástí
+        nejsou; aplikace hostuje Audio Units, které už na Macu máte.</p>
+        <div class="actions">
+          <a class="button" href="https://github.com/jiripisa/pluginarium/releases/download/v0.1.0/Pluginarium-0.1.0.dmg">Stáhnout verzi 0.1.0</a>
+        </div>
+        <p><a href="https://github.com/jiripisa/pluginarium/releases">Poznámky k verzím a starší verze</a></p>
+      </div>
+      <div>
+        <h2>Sestavení ze zdrojů</h2>
+        <p>Stačí nástroje příkazové řádky Xcode se Swiftem 6; projekt Xcode není potřeba.</p>
+<pre><code>git clone https://github.com/jiripisa/pluginarium.git
+cd pluginarium
+./run.sh</code></pre>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Pluginarium, autor Jiří Píša. GPL-3.0.</span>
+    <span><a href="manual.html">Manuál</a> · <a href="https://github.com/jiripisa/pluginarium">Zdrojový kód na GitHubu</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

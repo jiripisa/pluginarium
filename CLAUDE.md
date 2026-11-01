@@ -38,3 +38,17 @@ Your plugins as instruments in the studio.
   every release; it holds the whole procedure and its checks.
 - Signing: Developer ID Application certificate and the `notary`
   notarytool profile live in the login Keychain.
+
+## Website (`docs/`, GitHub Pages)
+
+- Served from `main` / `docs` at https://jiripisa.github.io/pluginarium/. The download links and
+  version strings on the pages are bumped with every release.
+- `docs/manual.html` describes every control of the app. A user-visible
+  change is not done until the manual says how to use it; screenshots live
+  in `docs/assets/manual/`.
+- **The site is bilingual.** Every change to `docs/index.html` or
+  `docs/manual.html` must also go into `docs/cs/` (and the other way
+  round). Shared styles live in `docs/assets/`.
+- Pages serves everything under `docs/`, so it will also publish
+  `docs/superpowers/` and `docs/studio-session.md`. The owner decides what
+  happens to them before the repo goes public.
