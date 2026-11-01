@@ -18,4 +18,4 @@
 - The configuration menu in the top bar marks the current configuration in amber, like the other menus.
 - Follow Start/Stop on every channel and insert effect, saved in the configuration. Tempo always reaches a plugin, but it sees the transport start and stop only with the switch on. Instruments start with it off, so an internal sequencer stays still until you ask for it, and effects start with it on.
 - In a low window the effects of a channel scroll, so its warnings and audio output stay in view.
-- A plugin that stamps the time into its state, like Mariana, no longer reads as changed when nobody touched it. A long plugin name on a channel shrinks to fit before it is cut off.
+- A plugin counts as changed only when its sound differs between opening and closing its window, so plugins that stamp the time or renew their ids in their state, like Mariana, no longer read as changed when nobody touched them. A long plugin name on a channel shrinks to fit before it is cut off.

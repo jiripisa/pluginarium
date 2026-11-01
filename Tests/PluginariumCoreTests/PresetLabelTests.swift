@@ -11,20 +11,27 @@ struct PresetLabelTests {
         PluginSlot(plugin: plugin, displayName: "Test Plugin", presetName: preset, state: state, isCustomSound: custom)
     }
 
-    private func stored(_ name: String, state: Data) -> [Preset] {
-        [Preset(name: name, plugin: plugin, state: state)]
-    }
-
-    @Test func noPresetAndNoStateIsTheDefaultSound() {
-        #expect(PresetLabel.text(for: slot(), saved: []) == "Default sound")
+    @Test func noPresetAndNoChangeIsTheDefaultSound() {
+        #expect(PresetLabel.text(for: slot(), isSavedPreset: false) == "Default sound")
+        #expect(PresetLabel.text(for: slot(state: bright), isSavedPreset: false) == "Default sound")
     }
 
     @Test func noPresetWithAChangedSoundIsACustomSound() {
-        #expect(PresetLabel.text(for: slot(state: bright, custom: true), saved: []) == "Custom sound")
+        #expect(PresetLabel.text(for: slot(state: bright, custom: true), isSavedPreset: false) == "Custom sound")
     }
 
-    @Test func aSavedConfigurationHoldsEveryStateAndLeavesAnUntouchedPluginOnTheDefaultSound() {
-        #expect(PresetLabel.text(for: slot(state: bright), saved: []) == "Default sound")
+    @Test func aSavedPresetReadsItsNameUntilItsSoundChanges() {
+        #expect(PresetLabel.text(for: slot(preset: "Lead", state: bright), isSavedPreset: true) == "Lead")
+        #expect(PresetLabel.text(for: slot(preset: "Lead", state: dark, custom: true), isSavedPreset: true) == "Lead (changed)")
+    }
+
+    @Test func aFactoryPresetIsNeverMarkedChanged() {
+        #expect(PresetLabel.text(for: slot(preset: "Hall", state: dark, custom: true), isSavedPreset: false) == "Hall")
+    }
+
+    @Test func aSavedPresetFromAnotherInstanceReadsPlainWhateverItsState() {
+        // The label never looks at states, so a plugin that renames itself on load does not matter.
+        #expect(PresetLabel.text(for: slot(preset: "Lead", state: dark), isSavedPreset: true) == "Lead")
     }
 
     @Test func aSlotTakingAChangedSoundIsCustom() {
@@ -39,44 +46,42 @@ struct PresetLabelTests {
         #expect(picked.state == bright && !picked.isCustomSound && picked.presetName == "Lead")
     }
 
-    @Test func aPresetThatMatchesItsStoredStateReadsItsName() {
-        #expect(PresetLabel.text(for: slot(preset: "Lead", state: bright), saved: stored("Lead", state: bright)) == "Lead")
+    @Test func openingAndClosingWithoutAChangeIsClean() {
+        var baseline = SoundBaseline(state: bright)
+        #expect(baseline.changedState(now: bright) == nil)
     }
 
-    @Test func aPresetThatDiffersFromItsStoredStateIsMarkedChanged() {
-        #expect(PresetLabel.text(for: slot(preset: "Lead", state: dark), saved: stored("Lead", state: bright)) == "Lead (changed)")
+    @Test func aLoadedStateThatDiffersFromTheRunningOneStaysCleanWhenNothingChanges() {
+        // The slot holds the state from disk, the window opened on the running one: only the second counts.
+        let loaded = slot(preset: "Lead", state: dark)
+        var baseline = SoundBaseline(state: bright)
+        #expect(baseline.changedState(now: bright) == nil)
+        #expect(PresetLabel.text(for: loaded, isSavedPreset: true) == "Lead")
     }
 
-    @Test func aFactoryPresetIsNeverMarkedChanged() {
-        #expect(PresetLabel.text(for: slot(preset: "Hall", state: dark), saved: stored("Lead", state: bright)) == "Hall")
+    @Test func aRealChangeBetweenOpeningAndClosingSetsTheFlag() {
+        var changed = slot(preset: "Lead", state: bright)
+        var baseline = SoundBaseline(state: bright)
+        if let state = baseline.changedState(now: dark) { changed.takeChangedSound(state) }
+        #expect(changed.isCustomSound && changed.state == dark)
     }
 
-    @Test func aFactoryPresetWaitingForItsPluginIsNotMarkedChanged() {
-        #expect(PresetLabel.text(for: slot(preset: "Lead"), saved: stored("Lead", state: bright)) == "Lead")
+    @Test func aChangeIsNotedOnce() {
+        var baseline = SoundBaseline(state: bright)
+        #expect(baseline.changedState(now: dark) == dark)
+        #expect(baseline.changedState(now: dark) == nil)
     }
 
-    @Test func aWindowThatChangedNothingLeavesTheSlotAlone() {
-        #expect(PresetLabel.stateAfterWindowClosed(slot: slot(state: bright), opened: bright, closed: bright) == nil)
-    }
-
-    @Test func aWindowThatChangedTheSoundGivesTheSlotTheNewState() {
-        #expect(PresetLabel.stateAfterWindowClosed(slot: slot(state: bright), opened: bright, closed: dark) == dark)
-    }
-
-    @Test func theComparisonIsWithTheSlotNotWithWhatTheWindowOpenedOn() {
-        // A preset picked while the window was open changed the slot and the plugin together.
-        #expect(PresetLabel.stateAfterWindowClosed(slot: slot(preset: "Lead", state: dark), opened: bright, closed: dark) == nil)
-        #expect(PresetLabel.stateAfterWindowClosed(slot: slot(state: dark), opened: bright, closed: bright) == bright)
-    }
-
-    @Test func aSlotWithoutStateComparesWithWhatTheWindowOpenedOn() {
-        // A plugin always has a state, so a look at the default sound must not read as a new sound.
-        #expect(PresetLabel.stateAfterWindowClosed(slot: slot(), opened: bright, closed: bright) == nil)
-        #expect(PresetLabel.stateAfterWindowClosed(slot: slot(), opened: bright, closed: dark) == dark)
+    @Test func movingTheBaselineMakesAPickNotAChange() {
+        var baseline = SoundBaseline(state: bright)
+        baseline.move(to: dark)
+        #expect(baseline.changedState(now: dark) == nil)
     }
 
     @Test func aStateThatCannotBeReadChangesNothing() {
-        #expect(PresetLabel.stateAfterWindowClosed(slot: slot(state: bright), opened: bright, closed: nil) == nil)
-        #expect(PresetLabel.stateAfterWindowClosed(slot: slot(), opened: nil, closed: dark) == nil)
+        var baseline = SoundBaseline(state: bright)
+        #expect(baseline.changedState(now: nil) == nil)
+        var unknown = SoundBaseline(state: nil)
+        #expect(unknown.changedState(now: dark) == nil)
     }
 }

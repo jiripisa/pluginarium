@@ -1,30 +1,40 @@
 import Foundation
 
-/// What a plugin's preset selector reads. Plugins give no signal when their sound changes, so the
-/// configuration learns of it when the plugin's window closes.
+/// What a plugin's preset selector reads. Plugins give no signal when their sound changes, so a
+/// plugin window compares the state it opened on with the state it closes on, and the slot keeps
+/// the verdict in `isCustomSound`. States are never compared across plugin instances, because a
+/// plugin may give itself new identifiers on every load.
 public enum PresetLabel {
 
-    /// Saving fills the state of every slot, so only `isCustomSound` tells a changed sound from a default one.
-    public static func text(for slot: PluginSlot, saved: [Preset]) -> String {
+    /// `isSavedPreset` tells a preset of the user's from a factory preset of the plugin, which is
+    /// never marked.
+    public static func text(for slot: PluginSlot, isSavedPreset: Bool) -> String {
         guard let name = slot.presetName else {
             return slot.isCustomSound ? "Custom sound" : "Default sound"
         }
-        guard let state = slot.state, let stored = saved.first(where: { $0.name == name }),
-            !PluginStateComparison.isSameSound(state, stored.state)
-        else {
-            return name
-        }
-        return "\(name) (changed)"
+        return isSavedPreset && slot.isCustomSound ? "\(name) (changed)" : name
+    }
+}
+
+/// The state one plugin instance had when its window last opened or was last looked at.
+public struct SoundBaseline: Sendable {
+    public private(set) var state: Data?
+
+    public init(state: Data?) {
+        self.state = state
     }
 
-    /// The state `slot` takes now that its plugin's window has closed on `closed`, or nil if it keeps
-    /// the one it has. A slot without a state compares with `opened`, the state the window opened on,
-    /// because looking at the default sound does not change it.
-    public static func stateAfterWindowClosed(slot: PluginSlot, opened: Data?, closed: Data?) -> Data? {
-        guard let closed, let reference = slot.state ?? opened,
-            !PluginStateComparison.isSameSound(closed, reference)
-        else { return nil }
-        return closed
+    /// The state to record if the sound is not the one of the baseline, which then moves to `now`
+    /// so a change is noted once. Nil when nothing changed or a state could not be read.
+    public mutating func changedState(now: Data?) -> Data? {
+        guard let now, let state, !PluginStateComparison.isSameSound(now, state) else { return nil }
+        self.state = now
+        return now
+    }
+
+    /// The plugin was set to a preset, which is not a change of its sound.
+    public mutating func move(to state: Data?) {
+        self.state = state
     }
 }
 

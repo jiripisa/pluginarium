@@ -379,15 +379,14 @@ final class AppModel {
     }
 
     func presetLabel(for slot: PluginSlot) -> String {
-        PresetLabel.text(for: slot, saved: savedPresets(for: slot.plugin))
+        let isSaved = slot.presetName.map { name in savedPresets(for: slot.plugin).contains { $0.name == name } } ?? false
+        return PresetLabel.text(for: slot, isSavedPreset: isSaved)
     }
 
-    /// A plugin window has seen `closed`, after opening on `opened`. Plugins give no signal when their
+    /// A plugin window found the plugin's sound changed, to `state`. Plugins give no signal when their
     /// sound changes, so this is where the configuration hears of it.
-    func notePluginState(at location: PluginLocation, opened: Data?, closed: Data?) {
-        guard let slot = session?.configuration.slot(at: location),
-            let state = PresetLabel.stateAfterWindowClosed(slot: slot, opened: opened, closed: closed)
-        else { return }
+    func notePluginSoundChanged(at location: PluginLocation, to state: Data) {
+        guard session?.configuration.slot(at: location) != nil else { return }
         edit { $0.updateSlot(at: location) { $0.takeChangedSound(state) } }
     }
 
@@ -478,6 +477,7 @@ final class AppModel {
             // A running plugin keeps its own state whatever its slot says, so it is told directly.
             try plugin.restore(preset.state)
             edit { $0.updateSlot(at: location) { $0.takePreset(preset.name, state: preset.state) } }
+            pluginWindows.moveBaseline(at: location)
         } catch {
             report("\(preset.name) could not be loaded", error)
         }
@@ -489,6 +489,7 @@ final class AppModel {
             try plugin.selectFactoryPreset(name)
             let state = try plugin.fullState()
             edit { $0.updateSlot(at: location) { $0.takePreset(name, state: state) } }
+            pluginWindows.moveBaseline(at: location)
         } catch {
             report("\(name) could not be loaded", error)
         }
@@ -515,6 +516,7 @@ final class AppModel {
         presetCache[plugin.id] = presetStore.presets(for: plugin.id)
         presetChanges += 1
         edit { $0.updateSlot(at: location) { $0.takePreset(name, state: state) } }
+        pluginWindows.moveBaseline(at: location)
         switch session.followUpAfterPresetSaved() {
         case .askToSaveConfiguration:
             dialog = .updateConfiguration(preset: name, configuration: session.configuration.name) { [weak self] in

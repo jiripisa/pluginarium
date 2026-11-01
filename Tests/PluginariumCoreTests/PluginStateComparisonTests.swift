@@ -73,22 +73,4 @@ struct PluginStateComparisonTests {
         #expect(PluginStateComparison.isSameSound(try plist(juce: broken), try plist(juce: broken)))
         #expect(!PluginStateComparison.isSameSound(try plist(juce: broken), try plist(juce: juce())))
     }
-
-    @Test func aLabelStaysCleanWhenOnlyTheTimeStampDiffers() throws {
-        let saved = try plist(juce: juce())
-        let now = try plist(juce: juce(root: #"<Synth tempo="120" date="2000" name="Init">"#))
-        let plugin = PluginSlot.fixture().plugin
-        let slot = PluginSlot(plugin: plugin, displayName: "Synth", presetName: "Lead", state: now)
-        #expect(PresetLabel.text(for: slot, saved: [Preset(name: "Lead", plugin: plugin, state: saved)]) == "Lead")
-        #expect(PresetLabel.stateAfterWindowClosed(slot: slot, opened: saved, closed: now) == nil)
-    }
-
-    @Test func aLabelStillReadsChangedForARealChange() throws {
-        let saved = try plist(juce: juce())
-        let now = try plist(juce: juce(body: #"<PARAM id="a" value="0.9"/>"#))
-        let plugin = PluginSlot.fixture().plugin
-        let slot = PluginSlot(plugin: plugin, displayName: "Synth", presetName: "Lead", state: now)
-        #expect(PresetLabel.text(for: slot, saved: [Preset(name: "Lead", plugin: plugin, state: saved)]) == "Lead (changed)")
-        #expect(PresetLabel.stateAfterWindowClosed(slot: slot, opened: saved, closed: saved) == saved)
-    }
 }

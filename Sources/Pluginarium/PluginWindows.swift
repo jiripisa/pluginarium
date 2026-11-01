@@ -31,9 +31,9 @@ final class PluginWindows {
             return
         }
         guard let plugin = app.hostedPlugin(at: location), let slot = app.session?.configuration.slot(at: location) else { return }
-        let window = PluginWindow(plugin: plugin, title: slot.displayName, cascade: opened, isHidden: isHidden) { [weak self] opened, closed in
+        let window = PluginWindow(plugin: plugin, title: slot.displayName, cascade: opened, isHidden: isHidden) { [weak self] changed in
             self?.windows[location] = nil
-            self?.app.notePluginState(at: location, opened: opened, closed: closed)
+            if let changed { self?.app.notePluginSoundChanged(at: location, to: changed) }
         }
         opened += 1
         windows[location] = window
@@ -55,8 +55,13 @@ final class PluginWindows {
     /// Reads what the open windows have done to their plugins, without closing them.
     func noteChanges() {
         for (location, window) in windows {
-            app.notePluginState(at: location, opened: window.stateOnOpening, closed: try? window.plugin.fullState())
+            if let changed = window.changedState() { app.notePluginSoundChanged(at: location, to: changed) }
         }
+    }
+
+    /// A preset was picked or saved on the plugin at `location`, which its open window must not read as a change.
+    func moveBaseline(at location: PluginLocation) {
+        windows[location]?.moveBaseline()
     }
 
     /// Closes the windows of plugins that have left `configuration`. Their state goes with them.
@@ -76,14 +81,14 @@ final class PluginWindows {
 @MainActor
 private final class PluginWindow: NSObject, NSWindowDelegate {
     let plugin: HostedPlugin
-    /// What the plugin was doing when the window opened.
-    let stateOnOpening: Data?
+    /// What the plugin was doing when the window opened, or when its sound was last looked at.
+    private var baseline: SoundBaseline
     /// Where it stood among the app's windows when it was hidden, front first.
     private(set) var stackPosition = 0
 
     private let title: String
     private let cascade: Int
-    private let onClose: (_ opened: Data?, _ closed: Data?) -> Void
+    private let onClose: (_ changed: Data?) -> Void
     private var window: NSWindow?
     private var view: NSView?
     private weak var mixer: NSWindow?
@@ -93,9 +98,9 @@ private final class PluginWindow: NSObject, NSWindowDelegate {
     private var isClosed = false
     private var readsStateOnClose = true
 
-    init(plugin: HostedPlugin, title: String, cascade: Int, isHidden: Bool, onClose: @escaping (_ opened: Data?, _ closed: Data?) -> Void) {
+    init(plugin: HostedPlugin, title: String, cascade: Int, isHidden: Bool, onClose: @escaping (_ changed: Data?) -> Void) {
         self.plugin = plugin
-        stateOnOpening = try? plugin.fullState()
+        baseline = SoundBaseline(state: try? plugin.fullState())
         self.title = title
         self.cascade = cascade
         self.isHidden = isHidden
@@ -136,6 +141,15 @@ private final class PluginWindow: NSObject, NSWindowDelegate {
         window?.close()
         // A window that is off the screen may not hear of its own closing.
         finish()
+    }
+
+    /// The state the sound has changed to since the last look, if it has.
+    func changedState() -> Data? {
+        baseline.changedState(now: try? plugin.fullState())
+    }
+
+    func moveBaseline() {
+        baseline.move(to: try? plugin.fullState())
     }
 
     func closeWithoutReadingState() {
@@ -229,7 +243,7 @@ private final class PluginWindow: NSObject, NSWindowDelegate {
         isClosed = true
         NotificationCenter.default.removeObserver(self)
         preferredSize = nil
-        let closed = readsStateOnClose ? try? plugin.fullState() : nil
+        let changed = readsStateOnClose ? changedState() : nil
         if let window {
             window.delegate = nil
             window.parent?.removeChildWindow(window)
@@ -241,7 +255,7 @@ private final class PluginWindow: NSObject, NSWindowDelegate {
         view = nil
         window = nil
         if !isOpening { plugin.releaseView() }
-        onClose(stateOnOpening, closed)
+        onClose(changed)
     }
 }
 
