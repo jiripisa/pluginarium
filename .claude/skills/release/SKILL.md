@@ -5,7 +5,7 @@ description: Use when the user wants to release, publish or ship a new version o
 
 # Releasing Pluginarium
 
-A release is: version bump → tests → signed + notarized DMG →
+A release is: version bump → tests → signed + notarized DMG + appcast →
 merge + tag → GitHub Release → website → live checks. Every step
 below has a check; a step is not done until its check passed.
 
@@ -23,7 +23,8 @@ the user has already said yes to exactly that in the conversation.
    when the user says so. Say which and why.
 3. `CHANGELOG.md`: rename `## Unreleased` to `## X.Y.Z — YYYY-MM-DD`. If there
    is no Unreleased section, write the entries from `git log` since the last tag
-   first. These lines become the GitHub Release notes.
+   first. These lines become the GitHub Release notes and the text of the update
+   dialog.
 4. Bump `CFBundleShortVersionString` **and** `CFBundleVersion` in
    `Resources/Info.plist`.
 5. Replace the old version in the website: `grep -rn "<old version>" docs/*.html docs/cs/*.html`
@@ -39,6 +40,8 @@ background and wait for it to finish.
 Check, all of them:
 - the log shows `status: Accepted` twice and ends with `Done!`;
 - `spctl -a -vv build/release/Pluginarium.app` says `source=Notarized Developer ID`;
+- `git diff docs/appcast.xml` shows the new version, the new download URL
+  and a new `sparkle:edSignature`.
 
 A `403 … agreement is missing or has expired` from notarytool means the user
 must accept the new Apple agreement at developer.apple.com/account — stop and
@@ -56,7 +59,7 @@ apps' windows. Quit the app afterwards.
 
 1. Update `.planning` if the project uses it (ROADMAP row, STATE line,
    `phases/NN-vX.Y.Z-release/VERIFICATION.md` with the checks above).
-2. `git status`, then commit (never with AI attribution trailers): `chore(release): vX.Y.Z — version bump, CHANGELOG, website`.
+2. `git status`, then commit (never with AI attribution trailers): `chore(release): vX.Y.Z — version bump, CHANGELOG, appcast, website`.
 3. `git switch main && git merge --no-ff <branch> -m "chore: merge … — vX.Y.Z release"`,
    delete the branch, `git tag vX.Y.Z` (lightweight).
 
@@ -72,15 +75,21 @@ apps' windows. Quit the app afterwards.
 2. Copy `build/Pluginarium.dmg` to a scratch folder as `Pluginarium-X.Y.Z.dmg` and run
    `gh release create vX.Y.Z <that file> --title "Pluginarium X.Y.Z" --notes-file <CHANGELOG section>`.
 3. Check: `curl -sIL -o /dev/null -w "%{http_code}" https://github.com/jiripisa/pluginarium/releases/download/vX.Y.Z/Pluginarium-X.Y.Z.dmg` → `200`.
-4. Only now `git push origin main`.
+4. Only now `git push origin main` (it carries the appcast; the DMG must
+   already exist).
 
 ## 6. Live checks
 
 1. Wait for the Pages deploy: `gh run list --limit 1`, then `gh run watch <id> --exit-status`.
 2. `curl -s "https://jiripisa.github.io/pluginarium/?x=$RANDOM" | grep -o "X.Y.Z"` shows the new version;
    the same for `https://jiripisa.github.io/pluginarium/cs/`.
+3. Download the DMG from the release URL and the live appcast
+   (`https://jiripisa.github.io/pluginarium/appcast.xml`), then
+   `.build/artifacts/sparkle/Sparkle/bin/sign_update --verify <dmg> <edSignature from the live appcast>`
+   must print nothing and exit 0 — the feed's signature matches the published bytes.
 
 ## Report
 
 Tell the user: the release URL, what was pushed, the results of every check,
-the version choice and why.
+the version choice and why, and ask them to confirm that an installed older
+version offers the update.

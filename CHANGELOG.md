@@ -21,3 +21,4 @@
 - A plugin that runs away can no longer blast the outputs: broken samples become silence and the signal stops at +12 dB, on every channel and on the device. This is a safety ceiling that clips, not a limiter.
 - When microphone access is denied, the mixer and Settings say "Microphone access denied, inputs are silent" instead of leaving every audio and sidechain input quietly dead.
 - When your audio device or the system's default output has inputs, the app asks for microphone access before it opens any device, and the mixer says "Waiting for microphone access" until you answer. The app no longer hangs while its own question is open: Settings, menus and Quit keep working.
+- Updates: at every launch the app asks whether a newer version exists and offers it, and Check for Updates… in the app menu asks right away. Nothing is installed without your OK.

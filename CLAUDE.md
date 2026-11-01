@@ -13,7 +13,7 @@ Your plugins as instruments in the studio.
 - Build and run: `./run.sh` (debug, logs in the terminal), `./run.sh release`,
   `./build.sh [debug|release|dist|clean]`. Details in `development_workflow.md`.
 - Every user-visible change gets a line under `## Unreleased` in
-  `CHANGELOG.md`; the release notes come from it.
+  `CHANGELOG.md`; the release notes and the update dialog come from it.
 
 ## Rules that are easy to break
 
@@ -38,6 +38,9 @@ Your plugins as instruments in the studio.
   every release; it holds the whole procedure and its checks.
 - Signing: Developer ID Application certificate and the `notary`
   notarytool profile live in the login Keychain.
+- The Sparkle EdDSA private key lives only in the login Keychain. Never put
+  it (or an exported copy) into the repo; `Info.plist` holds only the public
+  key (`SUPublicEDKey`).
 
 ## Website (`docs/`, GitHub Pages)
 
@@ -49,6 +52,5 @@ Your plugins as instruments in the studio.
 - **The site is bilingual.** Every change to `docs/index.html` or
   `docs/manual.html` must also go into `docs/cs/` (and the other way
   round). Shared styles live in `docs/assets/`.
-- Pages serves everything under `docs/`, so it will also publish
-  `docs/superpowers/` and `docs/studio-session.md`. The owner decides what
-  happens to them before the repo goes public.
+- Pages serves everything under `docs/`, so `docs/superpowers/` and
+  `docs/studio-session.md` are public too.

@@ -14,6 +14,11 @@ let package = Package(
         // Command-line probe for the audio layer.
         .executable(name: "pluginarium-probe", targets: ["pluginarium-probe"]),
     ],
+    dependencies: [
+        // Auto-update: the standard updater for apps outside the App Store;
+        // EdDSA-signed appcast on GitHub Pages.
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.4"),
+    ],
     targets: [
         .target(
             name: "PluginariumCore",
@@ -55,6 +60,7 @@ let package = Package(
                 "PluginariumCore",
                 "PluginariumAudio",
                 "PluginariumTestUnits",
+                .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Sources/Pluginarium",
             linkerSettings: [

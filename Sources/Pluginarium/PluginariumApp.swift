@@ -4,6 +4,7 @@ import SwiftUI
 @main
 struct PluginariumApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @State private var updates = UpdateService()
 
     var body: some Scene {
         Window("Pluginarium", id: "main") {
@@ -12,7 +13,7 @@ struct PluginariumApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
         .defaultSize(width: 1280, height: 760)
-        .commands { AppCommands(model: delegate.model) }
+        .commands { AppCommands(model: delegate.model, updates: updates) }
     }
 }
 
@@ -56,11 +57,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 /// New configuration, Save and Save as in the File menu, and Settings in the app menu. They are off
-/// while a question is open and where they do not apply.
+/// while a question is open and where they do not apply. Check for Updates sits next to About.
 private struct AppCommands: Commands {
     let model: AppModel
+    let updates: UpdateService
 
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") { updates.checkNow() }
+                .disabled(!updates.canCheck)
+        }
         CommandGroup(replacing: .newItem) {
             Button("New configuration") { model.leave { model.newConfiguration() } }
                 .disabled(!model.commandsAvailable)
