@@ -1,7 +1,7 @@
 # Pluginarium design
 
 Date: 2026-10-31
-Status: awaiting approval
+Status: approved
 
 ## Intent
 
