@@ -9,7 +9,9 @@ public enum PresetLabel {
         guard let name = slot.presetName else {
             return slot.isCustomSound ? "Custom sound" : "Default sound"
         }
-        guard let state = slot.state, let stored = saved.first(where: { $0.name == name }), state != stored.state else {
+        guard let state = slot.state, let stored = saved.first(where: { $0.name == name }),
+            !PluginStateComparison.isSameSound(state, stored.state)
+        else {
             return name
         }
         return "\(name) (changed)"
@@ -19,7 +21,9 @@ public enum PresetLabel {
     /// the one it has. A slot without a state compares with `opened`, the state the window opened on,
     /// because looking at the default sound does not change it.
     public static func stateAfterWindowClosed(slot: PluginSlot, opened: Data?, closed: Data?) -> Data? {
-        guard let closed, let reference = slot.state ?? opened, closed != reference else { return nil }
+        guard let closed, let reference = slot.state ?? opened,
+            !PluginStateComparison.isSameSound(closed, reference)
+        else { return nil }
         return closed
     }
 }

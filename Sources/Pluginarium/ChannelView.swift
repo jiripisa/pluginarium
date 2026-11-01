@@ -163,6 +163,7 @@ struct ChannelView: View {
                 .panelSpacing(0.04, size: 29)
                 .textCase(.uppercase)
                 .lineLimit(1)
+                .minimumScaleFactor(0.7)
                 .truncationMode(.tail)
                 .foregroundStyle(Color.legend)
                 .frame(height: 29, alignment: .leading)
