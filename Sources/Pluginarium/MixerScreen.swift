@@ -139,11 +139,15 @@ private struct Readout<Lead: View>: View {
     }
 }
 
-/// Why nothing is playing, or nothing comes in, when something is wrong with the audio device.
+/// Why nothing is playing, or nothing comes in, when something is wrong with the audio device. Waiting
+/// for the owner's answer is not a fault, so it stays in the muted color.
 struct AudioFaults: View {
     let audio: AudioSession
 
     var body: some View {
+        if case .waitingForMicrophone = audio.engine.state {
+            Readout(text: "Waiting for microphone access") { LED(tone: .off) }
+        }
         if case .deviceMissing = audio.engine.state {
             Readout(text: "Audio device missing", lead: { LED(tone: .fault) }, color: .fault)
         }

@@ -14,6 +14,9 @@ public enum EngineState: Equatable, Sendable {
     /// wanted and there is none. A device that will not stop reports this too, and so does a restart
     /// onto a default output the render core cannot run.
     case deviceMissing(String)
+    /// The device has inputs and the owner has not answered the microphone question yet, so no device
+    /// is open. The answer starts it, with its input or without.
+    case waitingForMicrophone
 }
 
 public enum AudioEngineError: Error {
@@ -108,6 +111,10 @@ public final class AudioEngine {
     @ObservationIgnored private var stream: (any DeviceStream)?
     /// What to go back to when a device returns. Nil once stopped.
     @ObservationIgnored private var lastSettings: AppSettings?
+    /// Asked once: the question stays open however often the engine stops and starts under it, and
+    /// its answer stands from then on.
+    @ObservationIgnored private var hasAskedForMicrophone = false
+    @ObservationIgnored private var microphoneAnswer: Bool?
 
     public init(devices: @escaping () -> [AudioDevice] = DeviceCatalog.all) {
         guard let renderEngine = pr_engine_create(Self.maxFrames, AppSettings.defaults.sampleRate) else {
@@ -131,10 +138,13 @@ public final class AudioEngine {
     /// what it runs at, for this start and every restart. Read `runningSampleRate` for the result.
     ///
     /// A device that is not there is not an error: `state` becomes `.deviceMissing`, and the device
-    /// starts when it returns. Throws without touching what runs when the render core cannot take
-    /// the settings. Throws with `state` at `.stopped` when the device fails, or when the default
-    /// output runs a buffer above `maxFrames`, and tries again at the next device change. A restart
-    /// cannot throw, so it reports that device as `.deviceMissing` and does the same.
+    /// starts when it returns. Neither is an unanswered microphone question on a device with inputs:
+    /// `state` becomes `.waitingForMicrophone`, and the answer starts it.
+    ///
+    /// Throws without touching what runs when the render core cannot take the settings. Throws with
+    /// `state` at `.stopped` when the device fails, or when the default output runs a buffer above
+    /// `maxFrames`, and tries again at the next device change. A restart cannot throw, so it reports
+    /// that device as `.deviceMissing` and does the same.
     public func start(settings: AppSettings) throws {
         guard settings.audioDeviceUID == nil || (settings.sampleRate > 0 && (1...Int(Self.maxFrames)).contains(settings.bufferFrames)) else {
             throw AudioEngineError.unsupportedSettings(sampleRate: settings.sampleRate, bufferFrames: settings.bufferFrames)
@@ -173,6 +183,8 @@ public final class AudioEngine {
         case .deviceMissing:
             let wanted = wantedUID(lastSettings)
             if devices().contains(where: { $0.id == wanted }) { restart(lastSettings) }
+        case .waitingForMicrophone:
+            restart(lastSettings)
         }
     }
 
@@ -198,6 +210,11 @@ public final class AudioEngine {
             return
         }
         guard !device.outputChannels.isEmpty else { throw AudioEngineError.noOutputChannels(device.name) }
+        if !device.inputChannels.isEmpty, microphoneStatus == .notDetermined {
+            askForMicrophone()
+            state = .waitingForMicrophone
+            return
+        }
 
         let request = StreamRequest(device: device, settings: chosenSettings(in: settings), usesInput: canUseInput(of: device))
         let opened = try seams.open(request, renderEngine)
@@ -234,38 +251,40 @@ public final class AudioEngine {
         return true
     }
 
-    /// Input stays off until the permission is granted, and an unanswered permission is asked for
-    /// while output already plays. The answer restarts the device with its input.
+    /// No HAL unit opens on a device with inputs until the owner has answered. Creating a unit makes
+    /// `coreaudiod` check the permission itself and wait for the same prompt, and the call that created
+    /// the unit waits for `coreaudiod`, which would hold the main actor for as long as the prompt is up.
     private func canUseInput(of device: AudioDevice) -> Bool {
         guard !device.inputChannels.isEmpty else {
             inputPermissionDenied = false
             return false
         }
-        switch seams.microphoneStatus() {
-        case .authorized:
-            inputPermissionDenied = false
-            return true
-        case .notDetermined:
-            inputPermissionDenied = false
-            seams.requestMicrophone { [weak self] granted in
-                Task { @MainActor in self?.microphoneAnswered(granted) }
-            }
-            return false
-        default:
-            inputPermissionDenied = true
-            return false
+        let granted = microphoneStatus == .authorized
+        inputPermissionDenied = !granted
+        return granted
+    }
+
+    /// The system's status can lag behind the answer it has just given, and an engine that went by it
+    /// alone would ask again.
+    private var microphoneStatus: AVAuthorizationStatus {
+        let status = seams.microphoneStatus()
+        guard status == .notDetermined, let microphoneAnswer else { return status }
+        return microphoneAnswer ? .authorized : .denied
+    }
+
+    private func askForMicrophone() {
+        guard !hasAskedForMicrophone else { return }
+        hasAskedForMicrophone = true
+        seams.requestMicrophone { [weak self] granted in
+            Task { @MainActor in self?.microphoneAnswered(granted) }
         }
     }
 
-    /// The question can stay open while the engine moves to a device without inputs, which a refusal
-    /// then says nothing about.
+    /// Only a waiting engine moves. A stopped one starts nothing, and one that moved to another device
+    /// keeps playing: the answer counts when it next starts on a device with inputs.
     private func microphoneAnswered(_ granted: Bool) {
-        if case .running(let device) = state, device.inputChannels.isEmpty {
-            inputPermissionDenied = false
-            return
-        }
-        inputPermissionDenied = !granted
-        guard granted, case .running = state, let lastSettings else { return }
+        microphoneAnswer = granted
+        guard case .waitingForMicrophone = state, let lastSettings else { return }
         restart(lastSettings)
     }
 }

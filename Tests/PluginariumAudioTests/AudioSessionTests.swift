@@ -1,3 +1,4 @@
+import AVFoundation
 import AudioToolbox
 import CRenderCore
 import Foundation
@@ -20,8 +21,8 @@ private let instrumentLevel: Float = 0.25
 private let stereoOut = ["Left", "Right"]
 private let sixteenOut = (1...16).map { "Out \($0)" }
 
-private func device(_ id: String, outputs: [String] = stereoOut) -> AudioDevice {
-    AudioDevice(id: id, name: "Device \(id)", inputChannels: [], outputChannels: outputs)
+private func device(_ id: String, inputs: [String] = [], outputs: [String] = stereoOut) -> AudioDevice {
+    AudioDevice(id: id, name: "Device \(id)", inputChannels: inputs, outputChannels: outputs)
 }
 
 private func settings(for device: AudioDevice?, sampleRate: Double = 48_000, bufferFrames: Int = 128) -> AppSettings {
@@ -102,6 +103,9 @@ private final class FakeStream: DeviceStream, @unchecked Sendable {
 private final class Bench {
     var devices: [AudioDevice]
     var defaultOutput: AudioDevice?
+    var microphone = AVAuthorizationStatus.authorized
+    var microphoneRequests = 0
+    var answerMicrophone: (@Sendable (Bool) -> Void)?
     var opened: [FakeStream] = []
     var prepare: (FakeStream) -> Void = { _ in }
     /// What a device runs at when nothing is asked of it.
@@ -121,6 +125,11 @@ private final class Bench {
             self.opened.append(stream)
             return stream
         }
+        engine.seams.microphoneStatus = { [unowned self] in self.microphone }
+        engine.seams.requestMicrophone = { [unowned self] answer in
+            self.microphoneRequests += 1
+            self.answerMicrophone = answer
+        }
         session = AudioSession(cache: makeCache(), engine: engine)
     }
 
@@ -136,6 +145,13 @@ private final class Bench {
         devices = replacing ? [device] : devices + [device]
         defaultOutput = device
         engine.handleDeviceChange()
+        await session.reapplying?.value
+    }
+
+    /// The owner answers the microphone question, and the session catches up.
+    func answer(_ granted: Bool) async {
+        answerMicrophone?(granted)
+        for _ in 0..<20 { await Task.yield() }
         await session.reapplying?.value
     }
 
@@ -1009,6 +1025,139 @@ struct AudioSessionTests {
         #expect(bench.session.router.clockRunning)
         #expect(bench.session.runner === runner)
         #expect(bench.opened.count == 1)
+    }
+
+    // MARK: - Waiting for the microphone answer
+
+    private static let interface = device("fuse", inputs: ["In 1", "In 2"])
+
+    /// A session following the interface, with the question not answered yet.
+    private func unanswered() -> Bench {
+        let bench = Bench(devices: [Self.interface])
+        bench.microphone = .notDetermined
+        return bench
+    }
+
+    @Test("A configuration opened while the question is open holds no runner and returns")
+    func openWhileWaiting() async {
+        let bench = unanswered()
+
+        await bench.session.open(configuration(instrumentChannel()), settings: settings(for: nil))
+
+        #expect(bench.engine.state == .waitingForMicrophone)
+        #expect(bench.opened.isEmpty)
+        #expect(bench.session.runner == nil)
+        #expect(bench.session.startFailure == nil)
+        #expect(bench.microphoneRequests == 1)
+    }
+
+    @Test("Granting reaches the runner and what was wanted")
+    func grantReachesTheRunner() async throws {
+        let bench = unanswered()
+        let channel = instrumentChannel()
+        await bench.session.open(configuration(channel), settings: settings(for: nil))
+
+        await bench.answer(true)
+
+        #expect(bench.opened[0].request.usesInput)
+        #expect(bench.opened[0].request.settings == nil)
+        let runner = try #require(bench.session.runner)
+        #expect(runner.plugin(channel: channel.id, effect: nil) != nil)
+        #expect(runner.status == [channel.id: .ready])
+    }
+
+    @Test("Refusing plays what was wanted without input, and says so")
+    func refusalReachesTheRunner() async throws {
+        let bench = unanswered()
+        let channel = instrumentChannel()
+        await bench.session.open(configuration(channel), settings: settings(for: nil))
+
+        await bench.answer(false)
+
+        #expect(bench.opened[0].request.usesInput == false)
+        #expect(bench.engine.inputPermissionDenied)
+        #expect(bench.engine.state == .running(Self.interface))
+        #expect(try #require(bench.session.runner).plugin(channel: channel.id, effect: nil) != nil)
+    }
+
+    @Test("An edit made while waiting plays on the answer")
+    func editWhileWaiting() async throws {
+        let bench = unanswered()
+        let first = instrumentChannel()
+        let second = instrumentChannel(out: out23)
+        await bench.session.open(configuration(first), settings: settings(for: nil))
+
+        await bench.session.update(configuration(first, second))
+        #expect(bench.session.runner == nil)
+        await bench.answer(true)
+
+        let runner = try #require(bench.session.runner)
+        #expect(runner.plugin(channel: first.id, effect: nil) != nil)
+        #expect(runner.plugin(channel: second.id, effect: nil) != nil)
+    }
+
+    @Test("A saved sound survives the wait")
+    func stateSurvivesTheWait() async throws {
+        let bench = unanswered()
+        let source = try await loadPlugin(type: "aufx", subtype: "dely", manufacturer: "appl")
+        try setWetDryMix(of: source, to: 12)
+        let channel = delayChannel(state: try source.fullState())
+        await bench.session.open(configuration(channel), settings: settings(for: nil))
+
+        await bench.answer(true)
+
+        #expect(try wetDryMix(of: bench.session.runner?.plugin(channel: channel.id, effect: nil)) == 12)
+    }
+
+    @Test("Opening and changing settings while waiting ask no second question")
+    func noSecondQuestionFromTheSession() async throws {
+        let bench = unanswered()
+        let channel = instrumentChannel()
+        let other = configuration(channel)
+        await bench.session.open(configuration(instrumentChannel()), settings: settings(for: nil))
+
+        await bench.session.reload(other, settings: settings(for: nil))
+        await bench.session.applySettings(settings(for: Self.interface, sampleRate: 44_100))
+        #expect(bench.microphoneRequests == 1)
+        #expect(bench.opened.isEmpty)
+
+        await bench.answer(true)
+
+        #expect(bench.opened.count == 1)
+        #expect(bench.opened[0].request.settings?.sampleRate == 44_100)
+        #expect(try #require(bench.session.runner).plugin(channel: channel.id, effect: nil) != nil)
+    }
+
+    @Test("A move to a device with no inputs while waiting plays at once")
+    func deviceChangeWhileWaiting() async throws {
+        let bench = unanswered()
+        let channel = instrumentChannel()
+        await bench.session.open(configuration(channel), settings: settings(for: nil))
+
+        await bench.bringDevice(device("plain"))
+
+        #expect(bench.engine.state == .running(device("plain")))
+        let runner = try #require(bench.session.runner)
+        #expect(runner.plugin(channel: channel.id, effect: nil) != nil)
+
+        await bench.answer(true)
+        #expect(bench.opened.count == 1)
+        #expect(bench.session.runner === runner)
+    }
+
+    @Test("Closing while waiting holds nothing, and a late answer starts nothing", arguments: [true, false])
+    func closeWhileWaiting(granted: Bool) async {
+        let bench = unanswered()
+        await bench.session.open(configuration(instrumentChannel()), settings: settings(for: nil))
+
+        bench.session.close()
+        #expect(bench.engine.state == .stopped)
+
+        await bench.answer(granted)
+
+        #expect(bench.engine.state == .stopped)
+        #expect(bench.opened.isEmpty)
+        #expect(bench.session.runner == nil)
     }
 
     // MARK: - Collecting

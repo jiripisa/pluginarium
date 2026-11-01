@@ -981,50 +981,6 @@ struct AudioEngineTests {
         #expect(bench.microphoneRequests == 0)
     }
 
-    @Test("An unanswered permission is requested while output plays")
-    func unansweredPermissionIsRequested() throws {
-        let bench = Bench(devices: [Self.interface])
-        bench.microphone = .notDetermined
-        try bench.engine.start(settings: settings(for: Self.interface))
-        #expect(bench.microphoneRequests == 1)
-        #expect(bench.engine.state == .running(Self.interface))
-        #expect(bench.opened[0].request.usesInput == false)
-        #expect(!bench.engine.inputPermissionDenied)
-    }
-
-    @Test("Granting permission restarts the device with its input")
-    func grantRestartsWithInput() async throws {
-        let bench = Bench(devices: [Self.interface])
-        bench.microphone = .notDetermined
-        try bench.engine.start(settings: settings(for: Self.interface))
-        var changes = 0
-        bench.engine.onDeviceChange = { changes += 1 }
-
-        bench.microphone = .authorized
-        bench.answerMicrophone?(true)
-        await bench.settle()
-
-        #expect(bench.opened.count == 2)
-        #expect(bench.opened[0].stopCalls == 1)
-        #expect(bench.opened[1].request.usesInput)
-        #expect(!bench.engine.inputPermissionDenied)
-        #expect(changes == 0)
-    }
-
-    @Test("Refusing permission keeps the device playing")
-    func refusalKeepsPlaying() async throws {
-        let bench = Bench(devices: [Self.interface])
-        bench.microphone = .notDetermined
-        try bench.engine.start(settings: settings(for: Self.interface))
-
-        bench.answerMicrophone?(false)
-        await bench.settle()
-
-        #expect(bench.opened.count == 1)
-        #expect(bench.opened[0].stopCalls == 0)
-        #expect(bench.engine.inputPermissionDenied)
-    }
-
     @Test("A later output-only device clears the denied flag")
     func deniedFlagFollowsTheDevice() throws {
         let plain = device("plain")
@@ -1036,19 +992,244 @@ struct AudioEngineTests {
         #expect(!bench.engine.inputPermissionDenied)
     }
 
-    @Test("A refusal that comes after a move to an output-only device leaves the flag down")
-    func lateRefusalOnAnOutputOnlyDevice() async throws {
-        let plain = device("plain")
-        let bench = Bench(devices: [Self.interface, plain])
+    // MARK: - Waiting for the microphone answer
+
+    /// A bench on the interface with the question not answered yet.
+    private func unanswered(devices: [AudioDevice] = [Self.interface]) -> Bench {
+        let bench = Bench(devices: devices)
         bench.microphone = .notDetermined
+        return bench
+    }
+
+    @Test("No stream opens while the question is open")
+    func noStreamWhileTheQuestionIsOpen() throws {
+        let bench = unanswered()
+        var seen: [EngineState] = []
+        bench.engine.onDeviceChange = { seen.append(bench.engine.state) }
+
         try bench.engine.start(settings: settings(for: Self.interface))
+
+        #expect(bench.engine.state == .waitingForMicrophone)
+        #expect(seen == [.waitingForMicrophone])
+        #expect(bench.opened.isEmpty)
+        #expect(bench.microphoneRequests == 1)
+        #expect(!bench.markedRunning)
+        #expect(!bench.engine.canRender)
+        #expect(bench.engine.runningSampleRate == nil)
+        #expect(!bench.engine.inputPermissionDenied)
+    }
+
+    @Test("Moving to a device with inputs stops what ran before it asks")
+    func movingToAnInterfaceStopsFirst() throws {
+        let plain = device("plain")
+        let bench = unanswered(devices: [plain, Self.interface])
         try bench.engine.start(settings: settings(for: plain))
+
+        try bench.engine.start(settings: settings(for: Self.interface))
+
+        #expect(bench.engine.state == .waitingForMicrophone)
+        #expect(bench.opened.count == 1)
+        #expect(bench.opened[0].stopCalls == 1)
+        #expect(!bench.markedRunning)
+    }
+
+    @Test("Only one question is ever open")
+    func oneQuestionOnly() throws {
+        let bench = unanswered()
+        let settings = settings(for: Self.interface)
+        try bench.engine.start(settings: settings)
+        try bench.engine.start(settings: settings)
+        bench.engine.handleDeviceChange()
+        bench.engine.stop()
+        try bench.engine.start(settings: settings)
+
+        #expect(bench.microphoneRequests == 1)
+        #expect(bench.opened.isEmpty)
+        #expect(bench.engine.state == .waitingForMicrophone)
+    }
+
+    @Test("Granting opens the device with its input")
+    func grantedOpensWithInput() async throws {
+        let bench = unanswered()
+        try bench.engine.start(settings: settings(for: Self.interface, sampleRate: 44_100, bufferFrames: 256))
+        var seen: [EngineState] = []
+        bench.engine.onDeviceChange = { seen.append(bench.engine.state) }
+
+        // The system's status stays behind here, so the answer itself has to count.
+        bench.answerMicrophone?(true)
+        await bench.settle()
+
+        #expect(bench.engine.state == .running(Self.interface))
+        #expect(seen == [.running(Self.interface)])
+        #expect(bench.opened.count == 1)
+        #expect(bench.opened[0].request.usesInput)
+        #expect(bench.opened[0].request.settings == DeviceSettings(sampleRate: 44_100, bufferFrames: 256))
+        #expect(!bench.engine.inputPermissionDenied)
+        #expect(bench.microphoneRequests == 1)
+    }
+
+    @Test("Refusing opens the device without input and sets the flag")
+    func refusedOpensWithoutInput() async throws {
+        let bench = unanswered()
+        try bench.engine.start(settings: settings(for: Self.interface))
 
         bench.answerMicrophone?(false)
         await bench.settle()
 
+        #expect(bench.engine.state == .running(Self.interface))
+        #expect(bench.opened.count == 1)
+        #expect(bench.opened[0].request.usesInput == false)
+        #expect(bench.engine.inputPermissionDenied)
+        #expect(bench.microphoneRequests == 1)
+    }
+
+    @Test("A followed default still writes nothing after the answer", arguments: [true, false])
+    func followedDefaultWritesNothingAfterTheAnswer(granted: Bool) async throws {
+        let bench = unanswered()
+        bench.defaultOutput = Self.interface
+        try bench.engine.start(settings: settings(for: nil))
+        #expect(bench.engine.state == .waitingForMicrophone)
+
+        bench.answerMicrophone?(granted)
+        await bench.settle()
+
+        #expect(bench.opened[0].request.settings == nil)
+        #expect(bench.engine.runningSampleRate == bench.deviceSettings.sampleRate)
+    }
+
+    @Test("An answer in the system's status before the callback opens at once, and the answer starts nothing more")
+    func statusAheadOfTheAnswer() async throws {
+        let bench = unanswered()
+        try bench.engine.start(settings: settings(for: Self.interface))
+
+        bench.microphone = .authorized
+        bench.engine.handleDeviceChange()
+        #expect(bench.opened.count == 1)
+        #expect(bench.opened[0].request.usesInput)
+
+        bench.answerMicrophone?(true)
+        await bench.settle()
+        #expect(bench.opened.count == 1)
+        #expect(bench.opened[0].stopCalls == 0)
+    }
+
+    @Test("Stopping while waiting leaves nothing to stop, and a late answer starts nothing", arguments: [true, false])
+    func stopWhileWaiting(granted: Bool) async throws {
+        let bench = unanswered()
+        try bench.engine.start(settings: settings(for: Self.interface))
+
+        bench.engine.stop()
+        #expect(bench.engine.state == .stopped)
+
+        bench.answerMicrophone?(granted)
+        await bench.settle()
+
+        #expect(bench.engine.state == .stopped)
+        #expect(bench.opened.isEmpty)
+        #expect(!bench.markedRunning)
+    }
+
+    @Test("A start after stopping waits for the question already open, and its answer counts")
+    func startAgainWhileTheQuestionIsOpen() async throws {
+        let bench = unanswered()
+        let settings = settings(for: Self.interface)
+        try bench.engine.start(settings: settings)
+        bench.engine.stop()
+        try bench.engine.start(settings: settings)
+
+        bench.answerMicrophone?(true)
+        await bench.settle()
+
+        #expect(bench.engine.state == .running(Self.interface))
+        #expect(bench.opened.count == 1)
+        #expect(bench.opened[0].request.usesInput)
+        #expect(bench.microphoneRequests == 1)
+    }
+
+    @Test("A move to a device with no inputs while waiting starts at once, and the answer leaves it alone", arguments: [true, false])
+    func defaultMovesToAPlainDeviceWhileWaiting(granted: Bool) async throws {
+        let plain = device("plain")
+        let bench = unanswered(devices: [Self.interface, plain])
+        bench.defaultOutput = Self.interface
+        try bench.engine.start(settings: settings(for: nil))
+
+        bench.devices = [plain]
+        bench.defaultOutput = plain
+        bench.engine.handleDeviceChange()
         #expect(bench.engine.state == .running(plain))
+        #expect(bench.opened.count == 1)
+        #expect(bench.opened[0].request.usesInput == false)
+
+        bench.answerMicrophone?(granted)
+        await bench.settle()
+
+        #expect(bench.engine.state == .running(plain))
+        #expect(bench.opened.count == 1)
+        #expect(bench.opened[0].stopCalls == 0)
         #expect(!bench.engine.inputPermissionDenied)
+    }
+
+    @Test("A device list change that leaves the device there keeps waiting")
+    func unrelatedChangeWhileWaiting() throws {
+        let bench = unanswered()
+        try bench.engine.start(settings: settings(for: Self.interface))
+        var changes = 0
+        bench.engine.onDeviceChange = { changes += 1 }
+
+        bench.devices.append(device("other"))
+        bench.engine.handleDeviceChange()
+
+        #expect(bench.engine.state == .waitingForMicrophone)
+        #expect(bench.opened.isEmpty)
+        #expect(changes == 0)
+    }
+
+    @Test("The device leaving while waiting reports it missing, and its return uses the answer given meanwhile")
+    func deviceLeavesWhileWaiting() async throws {
+        let bench = unanswered()
+        try bench.engine.start(settings: settings(for: Self.interface))
+
+        bench.devices = []
+        bench.engine.handleDeviceChange()
+        #expect(bench.engine.state == .deviceMissing("fuse"))
+
+        bench.answerMicrophone?(true)
+        await bench.settle()
+        #expect(bench.engine.state == .deviceMissing("fuse"))
+        #expect(bench.opened.isEmpty)
+
+        bench.devices = [Self.interface]
+        bench.engine.handleDeviceChange()
+        #expect(bench.engine.state == .running(Self.interface))
+        #expect(bench.opened[0].request.usesInput)
+        #expect(bench.microphoneRequests == 1)
+    }
+
+    @Test("A device that fails after the answer waits for the next device change")
+    func failureAfterTheAnswer() async throws {
+        let bench = unanswered()
+        bench.prepare = { $0.startError = StartFailed() }
+        try bench.engine.start(settings: settings(for: Self.interface))
+
+        bench.answerMicrophone?(true)
+        await bench.settle()
+        #expect(bench.engine.state == .deviceMissing("fuse"))
+        #expect(!bench.markedRunning)
+
+        bench.prepare = { _ in }
+        bench.engine.handleDeviceChange()
+        #expect(bench.engine.state == .running(Self.interface))
+    }
+
+    @Test("An answer after the engine has gone does nothing")
+    func answerAfterTheEngineWentAway() async throws {
+        var bench: Bench? = unanswered()
+        try bench!.engine.start(settings: settings(for: Self.interface))
+        let answer = try #require(bench!.answerMicrophone)
+        bench = nil
+
+        answer(true)
+        for _ in 0..<20 { await Task.yield() }
     }
 
     // MARK: - dspLoad
