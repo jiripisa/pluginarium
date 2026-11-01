@@ -1,6 +1,7 @@
 import AVFoundation
 import AudioToolbox
 import CRenderCore
+import CoreGraphics
 import Foundation
 import PluginariumCore
 import Testing
@@ -8,10 +9,11 @@ import Testing
 
 // Hardware safety: a test never writes a device setting and never makes a sound. Only
 // `deviceLossAndReturn` starts a real device. It names no device, so the engine follows the default
-// output and requests nothing, refuses to open a stream that does request something, needs a device
-// without inputs, and keeps the graph empty. A test must never start a real device by name: that path
-// writes to it when its settings have moved. Every other test that opens a stream uses `FakeStream`,
-// and a device with inputs appears only with the microphone seams replaced.
+// output and requests nothing, refuses to open a stream that does request something, cancels while the
+// microphone question is unanswered, since only then can a prompt come up, and keeps the graph empty.
+// A test must never start a real device by name: that path writes to it when its settings have moved.
+// Every other test that opens a stream uses `FakeStream`, and a device with inputs appears there only
+// with the microphone seams replaced.
 
 private let stereoOut = ["Left", "Right"]
 private let renderCoreLimit = 4096
@@ -96,6 +98,11 @@ private final class Bench {
         !pr_engine_is_generation_taken(engine.renderEngine, pr_engine_install_graph(engine.renderEngine, nil, 0))
     }
 
+    /// The engine goes, and the bench stays to say what it did.
+    func letEngineGo() {
+        engine = nil
+    }
+
     /// Lets the `Task` that carries a microphone answer run.
     func settle() async {
         for _ in 0..<20 { await Task.yield() }
@@ -157,6 +164,14 @@ private func blockUntilSignalled(_ semaphore: DispatchSemaphore) {
 
 private func splitter() async throws -> HostedPlugin {
     try await loadPlugin(type: "aufc", subtype: "splt", manufacturer: "appl")
+}
+
+/// A system prompt is a window of this process. `coreaudiod` may be waiting on it, and a HAL unit made
+/// then blocks until it is answered, along with every later CoreAudio read in that process, so trying
+/// to make one from a thread of its own would not save the test run either.
+private func systemPromptIsOpen() -> Bool {
+    let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+    return windows.contains { $0[kCGWindowOwnerName as String] as? String == "UserNotificationCenter" }
 }
 
 /// A gain strip reading device inputs 0 and 1, so what the callback pulled shows on outputs 0 and 1.
@@ -961,6 +976,19 @@ struct AudioEngineTests {
         #expect(!bench.engine.inputPermissionDenied)
     }
 
+    @Test("With no inputs on the device or the default output, the microphone stays out of it")
+    func noInputsAnywhereAsksNothing() throws {
+        let bench = Bench(devices: [device("plain"), device("other")])
+        bench.defaultOutput = device("other")
+        bench.engine.seams.microphoneStatus = {
+            Issue.record("the microphone status was read with no inputs anywhere")
+            return .notDetermined
+        }
+        try bench.engine.start(settings: settings(for: device("plain")))
+        #expect(bench.engine.state == .running(device("plain")))
+        #expect(bench.microphoneRequests == 0)
+    }
+
     @Test("A device with inputs uses them when permission is granted")
     func grantedInput() throws {
         let bench = Bench(devices: [Self.interface])
@@ -1017,6 +1045,55 @@ struct AudioEngineTests {
         #expect(!bench.engine.canRender)
         #expect(bench.engine.runningSampleRate == nil)
         #expect(!bench.engine.inputPermissionDenied)
+    }
+
+    @Test("A device with no inputs waits too while the default output has inputs", arguments: [true, false])
+    func defaultOutputWithInputsHoldsANamedDevice(granted: Bool) async throws {
+        let plain = device("plain")
+        let bench = unanswered(devices: [plain, Self.interface])
+        bench.defaultOutput = Self.interface
+        let settings = settings(for: plain, sampleRate: 44_100)
+        try bench.engine.start(settings: settings)
+
+        #expect(bench.engine.state == .waitingForMicrophone)
+        #expect(bench.opened.isEmpty)
+        #expect(bench.microphoneRequests == 1)
+
+        bench.answerMicrophone?(granted)
+        await bench.settle()
+
+        #expect(bench.engine.state == .running(plain))
+        #expect(bench.opened.count == 1)
+        #expect(bench.opened[0].request.usesInput == false)
+        #expect(bench.opened[0].request.settings == DeviceSettings(sampleRate: 44_100, bufferFrames: 128))
+        #expect(!bench.engine.inputPermissionDenied)
+    }
+
+    @Test("A settled answer holds nothing back on a default output with inputs", arguments: [AVAuthorizationStatus.authorized, .denied, .restricted])
+    func settledStatusOpensANamedDevice(status: AVAuthorizationStatus) throws {
+        let plain = device("plain")
+        let bench = Bench(devices: [plain, Self.interface])
+        bench.defaultOutput = Self.interface
+        bench.microphone = status
+        try bench.engine.start(settings: settings(for: plain))
+
+        #expect(bench.engine.state == .running(plain))
+        #expect(bench.microphoneRequests == 0)
+        #expect(!bench.engine.inputPermissionDenied)
+    }
+
+    @Test("The default output losing its inputs while waiting lets a named device start")
+    func defaultOutputChangesWhileWaiting() throws {
+        let plain = device("plain")
+        let bench = unanswered(devices: [plain, Self.interface])
+        bench.defaultOutput = Self.interface
+        try bench.engine.start(settings: settings(for: plain))
+
+        bench.devices = [plain]
+        bench.defaultOutput = plain
+        bench.engine.handleDeviceChange()
+
+        #expect(bench.engine.state == .running(plain))
     }
 
     @Test("Moving to a device with inputs stops what ran before it asks")
@@ -1223,13 +1300,18 @@ struct AudioEngineTests {
 
     @Test("An answer after the engine has gone does nothing")
     func answerAfterTheEngineWentAway() async throws {
-        var bench: Bench? = unanswered()
-        try bench!.engine.start(settings: settings(for: Self.interface))
-        let answer = try #require(bench!.answerMicrophone)
-        bench = nil
+        let bench = unanswered()
+        try bench.engine.start(settings: settings(for: Self.interface))
+        let answer = try #require(bench.answerMicrophone)
+        weak var gone: AudioEngine? = bench.engine
+        bench.letEngineGo()
+        #expect(gone == nil)
 
         answer(true)
-        for _ in 0..<20 { await Task.yield() }
+        await bench.settle()
+
+        #expect(bench.microphoneRequests == 1)
+        #expect(bench.opened.isEmpty)
     }
 
     // MARK: - dspLoad
@@ -1454,8 +1536,11 @@ struct AudioEngineTests {
     /// Silent and writes nothing, under the rules at the top of this file.
     @Test func deviceLossAndReturn() throws {
         let output = try #require(DeviceCatalog.defaultOutput())
-        guard output.inputChannels.isEmpty else {
-            try Test.cancel("\(output.name) has inputs; starting it would enable the input element and ask for the microphone")
+        guard AVCaptureDevice.authorizationStatus(for: .audio) != .notDetermined else {
+            try Test.cancel("The microphone question is unanswered, so a prompt could come up")
+        }
+        guard !systemPromptIsOpen() else {
+            try Test.cancel("A system prompt is open, and a device opened now would block until it is answered")
         }
         let before = try #require(DeviceCatalog.currentSettings(of: output))
 
@@ -1468,6 +1553,7 @@ struct AudioEngineTests {
             guard request.settings == nil else { throw StartFailed() }
             return try open(request, renderEngine)
         }
+        engine.seams.requestMicrophone = { _ in Issue.record("a test must not raise a prompt") }
         do {
             try engine.start(settings: settings(for: nil))
         } catch {

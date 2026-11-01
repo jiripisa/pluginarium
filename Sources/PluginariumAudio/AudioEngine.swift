@@ -14,8 +14,8 @@ public enum EngineState: Equatable, Sendable {
     /// wanted and there is none. A device that will not stop reports this too, and so does a restart
     /// onto a default output the render core cannot run.
     case deviceMissing(String)
-    /// The device has inputs and the owner has not answered the microphone question yet, so no device
-    /// is open. The answer starts it, with its input or without.
+    /// The device or the default output has inputs and the owner has not answered the microphone
+    /// question yet, so no device is open. The answer starts it, with its input or without.
     case waitingForMicrophone
 }
 
@@ -138,8 +138,8 @@ public final class AudioEngine {
     /// what it runs at, for this start and every restart. Read `runningSampleRate` for the result.
     ///
     /// A device that is not there is not an error: `state` becomes `.deviceMissing`, and the device
-    /// starts when it returns. Neither is an unanswered microphone question on a device with inputs:
-    /// `state` becomes `.waitingForMicrophone`, and the answer starts it.
+    /// starts when it returns. Neither is an unanswered microphone question while the device or the
+    /// default output has inputs: `state` becomes `.waitingForMicrophone`, and the answer starts it.
     ///
     /// Throws without touching what runs when the render core cannot take the settings. Throws with
     /// `state` at `.stopped` when the device fails, or when the default output runs a buffer above
@@ -210,7 +210,7 @@ public final class AudioEngine {
             return
         }
         guard !device.outputChannels.isEmpty else { throw AudioEngineError.noOutputChannels(device.name) }
-        if !device.inputChannels.isEmpty, microphoneStatus == .notDetermined {
+        if mustWaitForMicrophone(beforeOpening: device) {
             askForMicrophone()
             state = .waitingForMicrophone
             return
@@ -251,9 +251,15 @@ public final class AudioEngine {
         return true
     }
 
-    /// No HAL unit opens on a device with inputs until the owner has answered. Creating a unit makes
-    /// `coreaudiod` check the permission itself and wait for the same prompt, and the call that created
-    /// the unit waits for `coreaudiod`, which would hold the main actor for as long as the prompt is up.
+    /// No HAL unit is created until the owner has answered. Creating one makes `coreaudiod` check the
+    /// permission itself and wait for the same prompt, and the call that created the unit waits for
+    /// `coreaudiod`, which would hold the main actor for as long as the prompt is up. A new unit starts
+    /// on the default output before it is pointed at `device`, so the inputs of both count.
+    private func mustWaitForMicrophone(beforeOpening device: AudioDevice) -> Bool {
+        let touched = [device, seams.defaultOutput()].compactMap { $0 }
+        return touched.contains { !$0.inputChannels.isEmpty } && microphoneStatus == .notDetermined
+    }
+
     private func canUseInput(of device: AudioDevice) -> Bool {
         guard !device.inputChannels.isEmpty else {
             inputPermissionDenied = false

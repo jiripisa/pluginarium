@@ -68,6 +68,10 @@ Notes for the session:
   lifecycle call runs on the main thread. Audio on other channels keeps running.
 - Test units that output non-audio signals never reach the app. Do not use a
   standalone effect with a live input as a look check.
+- Another app's open microphone prompt may still hold up a device open. While
+  `coreaudiod` waits on any such prompt, creating a device unit can block, and
+  the app stays frozen until that prompt is answered. The app only keeps out of
+  the way of its own question.
 
 | Step | What to do | Expected | Result |
 | --- | --- | --- | --- |
@@ -92,6 +96,7 @@ Hardware paths that no test could reach, from the ledger. Run each once:
 | Real device unplug | Unplug the interface while running, then plug it back. The configuration keeps going and returns when the device returns. | |
 | `DeviceListListener` | Plug and unplug a device. The device list in Settings updates. | |
 | Stop timeout | Quit and restart with audio running. Stop returns without hanging. | |
+| First use of the microphone question | Fakes cannot show this. Use an identity whose status is still `.notDetermined`, so a newly signed build, and run it from the app bundle with `open`: launched from a terminal, the app takes the terminal's permission. Open a configuration with the default output on a device with inputs. "Waiting for microphone access" shows in muted text, the channels stay dimmed, and Settings, menus and Quit work while the prompt is up. Allow gives inputs, Don't Allow plays without them and says so. | |
 | Real CoreMIDI delivery through the mioXL | Play notes and clock from a real source through the mioXL. They arrive, and sources added later are connected. | |
 
 After the session, commit the results and turn any failures into new tasks with
