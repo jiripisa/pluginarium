@@ -205,7 +205,12 @@ struct AddSheet: View {
         .overlay(Rectangle().strokeBorder(Color.lineStrong, lineWidth: 1))
         .shadow(color: .black.opacity(0.65), radius: 30, y: 20)
         .accessibilityAddTraits(.isModal)
-        .onAppear { searchFocused = true }
+        // Set after the update that shows the dialog. Set in onAppear, the request is lost and
+        // focus lands on the next control, so typed letters never reach the search.
+        .task {
+            await Task.yield()
+            searchFocused = true
+        }
     }
 
     private var tabs: some View {
