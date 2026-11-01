@@ -111,6 +111,10 @@ private struct TopBar: View {
                 Button("Save") { model.saveCurrent() }.buttonStyle(.key)
             } else if session.isSaved {
                 Text("Saved").font(.panelText(13)).foregroundStyle(Color.muted)
+                // An open plugin window may hold a change the configuration has not heard of yet.
+                if model.hasOpenPluginWindows {
+                    Button("Save") { model.saveIfChanged() }.buttonStyle(.key)
+                }
             }
         }
     }

@@ -151,6 +151,17 @@ final class AppModel {
         return session?.leaveAction ?? .proceed
     }
 
+    /// Whether a plugin window is open, whose plugin may have changed its sound without telling.
+    var hasOpenPluginWindows: Bool { pluginWindows.hasOpenWindows }
+
+    /// Command-S and the Save button: looks at the open plugin windows first, and saves only if that
+    /// leaves the configuration with changes. With nothing changed it does nothing.
+    func saveIfChanged() {
+        pluginWindows.noteChanges()
+        guard session?.isDirty == true else { return }
+        saveCurrent()
+    }
+
     /// Command-S, the Save button and Save configuration. A configuration that was never saved asks
     /// for its name first.
     func saveCurrent(then done: @escaping (_ saved: Bool) -> Void = { _ in }) {

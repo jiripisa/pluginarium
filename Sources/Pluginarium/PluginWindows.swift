@@ -19,6 +19,8 @@ final class PluginWindows {
         self.app = app
     }
 
+    var hasOpenWindows: Bool { !windows.isEmpty }
+
     func isOpen(channel: UUID, effect: UUID?) -> Bool {
         windows[PluginLocation(channel: channel, effect: effect)] != nil
     }
@@ -100,7 +102,8 @@ private final class PluginWindow: NSObject, NSWindowDelegate {
 
     init(plugin: HostedPlugin, title: String, cascade: Int, isHidden: Bool, onClose: @escaping (_ changed: Data?) -> Void) {
         self.plugin = plugin
-        baseline = SoundBaseline(state: try? plugin.fullState())
+        // The plugin's view can write state while it builds, so the baseline waits for the view.
+        baseline = SoundBaseline(state: nil)
         self.title = title
         self.cascade = cascade
         self.isHidden = isHidden
@@ -111,6 +114,7 @@ private final class PluginWindow: NSObject, NSWindowDelegate {
     func show() async {
         let view = await plugin.makeView()
         isOpening = false
+        if !isClosed { moveBaseline() }
         guard !isClosed else {
             plugin.releaseView()
             return

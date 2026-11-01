@@ -66,9 +66,9 @@ private struct AppCommands: Commands {
                 .disabled(!model.commandsAvailable)
         }
         CommandGroup(replacing: .saveItem) {
-            Button("Save") { model.saveCurrent() }
+            Button("Save") { model.saveIfChanged() }
                 .keyboardShortcut("s")
-                .disabled(!model.commandsAvailable || model.session?.isDirty != true)
+                .disabled(!model.commandsAvailable || !(model.session?.isDirty == true || (model.session != nil && model.hasOpenPluginWindows)))
             Button("Save as") { model.beginSaveAs() }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
                 .disabled(!model.commandsAvailable || model.session == nil)

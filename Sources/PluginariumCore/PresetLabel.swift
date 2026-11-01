@@ -32,8 +32,10 @@ public struct SoundBaseline: Sendable {
         return now
     }
 
-    /// The plugin was set to a preset, which is not a change of its sound.
+    /// The plugin was set to a preset, or its view is ready: this is the sound to compare with from now
+    /// on. A state that could not be read leaves the baseline where it was.
     public mutating func move(to state: Data?) {
+        guard let state else { return }
         self.state = state
     }
 }

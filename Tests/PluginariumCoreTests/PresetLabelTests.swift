@@ -84,4 +84,21 @@ struct PresetLabelTests {
         var unknown = SoundBaseline(state: nil)
         #expect(unknown.changedState(now: dark) == nil)
     }
+
+    @Test func aBaselineWaitsForTheViewAndNothingIsNotedMeanwhile() {
+        var baseline = SoundBaseline(state: nil)
+        #expect(baseline.changedState(now: dark) == nil)
+        baseline.move(to: dark)
+        #expect(baseline.changedState(now: dark) == nil)
+        #expect(baseline.changedState(now: bright) == bright)
+    }
+
+    @Test func aFailedReadLeavesTheBaselineWhereItWas() {
+        var baseline = SoundBaseline(state: bright)
+        baseline.move(to: nil)
+        #expect(baseline.changedState(now: dark) == dark)
+        var failed = SoundBaseline(state: bright)
+        #expect(failed.changedState(now: nil) == nil)
+        #expect(failed.changedState(now: dark) == dark)
+    }
 }
