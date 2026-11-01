@@ -58,6 +58,18 @@ private func tempoReporter() async throws -> [StripSpec] {
     [StripSpec(source: try await loadPlugin(type: "aumu", subtype: "PlTp"))]
 }
 
+/// Units reporting the all-off controllers they had: one on outputs 1-2 at slot 0, and one on outputs
+/// 3-4 at slot 1. All Sound Off shows on the first output of each, All Notes Off on the second.
+private func allOffReporters() async throws -> [StripSpec] {
+    [
+        StripSpec(source: try await loadPlugin(type: "aumu", subtype: "PlOf"), audioOut: outs01, midiSlot: 0),
+        StripSpec(source: try await loadPlugin(type: "aumu", subtype: "PlOf"), audioOut: outs23, midiSlot: 1),
+    ]
+}
+
+/// What an all-off reporter shows once a controller came on each of the 16 MIDI channels.
+private let everyChannel: Float = 0.16
+
 /// `messages` go into one packet each, so a message of several words stays whole.
 private func withEventList(_ messages: [[UInt32]], _ body: (UnsafePointer<MIDIEventList>) -> Void) {
     let size = 1024
@@ -143,6 +155,73 @@ struct MIDIRouterTests {
             let output = rig.render()
             expectLevel(output[0], 0)
             expectLevel(output[2], 0.25)
+        }
+    }
+
+    // MARK: - Route changes
+
+    @Test func aHeldNoteStopsWhenItsRouteChanges() async throws {
+        try await withRouter(try await twoInstruments()) { router, rig in
+            router.setRoutes([target("A", .all, slot: 0), target("A", .all, slot: 1)])
+            router.handle(noteOnChannel1, fromSource: "A", at: 0)
+            var output = rig.render()
+            expectLevel(output[0], 0.25)
+            expectLevel(output[2], 0.25)
+
+            // The key comes up on the old source, whose note off no longer reaches slot 0.
+            router.setRoutes([target("B", .all, slot: 0), target("A", .all, slot: 1)])
+            router.handle(.channelVoice(status: 0x80, data1: 60, data2: 0), fromSource: "A", at: 0)
+            output = rig.render()
+            expectLevel(output[0], 0)
+            expectLevel(output[2], 0)
+        }
+    }
+
+    @Test func aHeldNoteOnAnUnchangedRoutePlaysThroughAnEditOfAnother() async throws {
+        try await withRouter(try await twoInstruments()) { router, rig in
+            router.setRoutes([target("A", .all, slot: 0), target("A", .all, slot: 1)])
+            router.handle(noteOnChannel1, fromSource: "A", at: 0)
+            _ = rig.render()
+
+            router.setRoutes([target("B", .all, slot: 0), target("A", .all, slot: 1)])
+            let output = rig.render()
+            expectLevel(output[0], 0)
+            expectLevel(output[2], 0.25)
+        }
+    }
+
+    @Test(arguments: [
+        [target("B", .channel(1), slot: 0)],
+        [target("A", .channel(2), slot: 0)],
+        [target("A", .channel(1), slot: 1)],
+        [],
+    ])
+    func aRouteThatLeavesItsSlotSendsAllOffOnEveryChannel(routes: [MIDIRouteTarget]) async throws {
+        try await withRouter(try await allOffReporters()) { router, rig in
+            router.setRoutes([target("A", .channel(1), slot: 0)])
+            expectLevel(rig.render()[0], 0)
+
+            router.setRoutes(routes)
+            let output = rig.render()
+            expectLevel(output[0], everyChannel)
+            expectLevel(output[1], everyChannel)
+        }
+    }
+
+    @Test func aRouteThatStaysSendsNothing() async throws {
+        try await withRouter(try await allOffReporters()) { router, rig in
+            let first = target("A", .channel(1), slot: 0)
+            let second = target("B", .all, slot: 1)
+            router.setRoutes([first, second])
+            router.setRoutes([second, first])
+            for channel in rig.render() { expectLevel(channel, 0) }
+        }
+    }
+
+    @Test func aFirstRouteOnASlotSendsNothing() async throws {
+        try await withRouter(try await allOffReporters()) { router, rig in
+            router.setRoutes([target("A", .all, slot: 0)])
+            for channel in rig.render() { expectLevel(channel, 0) }
         }
     }
 
@@ -276,6 +355,119 @@ struct MIDIRouterTests {
         }
     }
 
+    @Test func aClockThatDiesStopsTheTransportAndTheTempoStays() async throws {
+        try await withRouter(try await tempoReporter()) { router, rig in
+            router.setClockSource("A")
+            let last = sendTicks(router)
+            router.handle(.start, fromSource: "A", at: last)
+            expectLevel(rig.render()[1], 0)
+
+            router.refreshClock(at: last + 0.5)
+            #expect(rig.render()[1][0] > 0)
+
+            router.refreshClock(at: last + 1.5)
+            #expect(!router.clockRunning)
+            let output = rig.render()
+            expectLevel(output[0], 0.124)
+            expectLevel(output[1], -1)
+        }
+    }
+
+    @Test func aClockThatComesBackDoesNotRestartTheTransport() async throws {
+        try await withRouter(try await tempoReporter()) { router, rig in
+            router.setClockSource("A")
+            var last = sendTicks(router)
+            router.handle(.start, fromSource: "A", at: last)
+            router.refreshClock(at: last + 1.5)
+
+            last = sendTicks(router, after: last + 2)
+            router.refreshClock(at: last)
+            #expect(router.clockRunning)
+            expectLevel(rig.render()[1], -1)
+
+            router.handle(.resume, fromSource: "A", at: last)
+            #expect(rig.render()[1][0] >= 0)
+            #expect(rig.render()[1][0] > 0)
+        }
+    }
+
+    @Test func aStartAfterADeadClockPlaysFromTheTop() async throws {
+        try await withRouter(try await tempoReporter()) { router, rig in
+            router.setClockSource("A")
+            let last = sendTicks(router)
+            router.handle(.start, fromSource: "A", at: last)
+            for _ in 0..<100 { _ = rig.render() }
+            router.refreshClock(at: last + 1.5)
+            expectLevel(rig.render()[1], -1)
+
+            router.handle(.start, fromSource: "A", at: last + 2)
+            expectLevel(rig.render()[1], 0)
+        }
+    }
+
+    @Test(arguments: [MIDIEvent.start, .resume])
+    func aPollRightAfterAStartLeavesItToItsFirstTick(event: MIDIEvent) async throws {
+        try await withRouter(try await tempoReporter()) { router, rig in
+            router.setClockSource("A")
+            let last = sendTicks(router)
+            router.refreshClock(at: last + 5)
+            router.handle(event, fromSource: "A", at: last + 5)
+            router.refreshClock(at: last + 5.01)
+            #expect(rig.render()[1][0] >= 0)
+
+            sendTicks(router, after: last + 5.02)
+            #expect(rig.render()[1][0] > 0)
+        }
+    }
+
+    @Test func aStartThatNeverGetsATickStopsToo() async throws {
+        try await withRouter(try await tempoReporter()) { router, rig in
+            router.setClockSource("A")
+            router.handle(.start, fromSource: "A", at: 10)
+            router.refreshClock(at: 11.5)
+            expectLevel(rig.render()[1], -1)
+        }
+    }
+
+    @Test func aDeadClockTellsAFollowingUnitThatTheTransportChanged() async throws {
+        let strips = try await tempoReporter()
+        try await withRouter(strips) { router, rig in
+            router.setClockSource("A")
+            let last = sendTicks(router)
+            router.handle(.start, fromSource: "A", at: last)
+            _ = rig.render()
+            _ = rig.render()
+
+            router.refreshClock(at: last + 1.5)
+            _ = rig.render()
+            let unit = strips[0].source.audioUnit
+            try #expect(!transport(of: unit, in: rig.engine).playing.boolValue)
+            try #expect(changedReadings(of: unit, in: rig.engine).allSatisfy { $0 })
+        }
+    }
+
+    @Test func aUnitThatDoesNotFollowSeesNothingOfADeadClock() async throws {
+        let strips = try await tempoReporter()
+        try await withRouter(strips) { router, rig in
+            let unit = strips[0].source.audioUnit
+            pr_engine_set_follows_transport(rig.engine, unit, false)
+            router.setClockSource("A")
+            let last = sendTicks(router)
+            router.handle(.start, fromSource: "A", at: last)
+            _ = rig.render()
+            var output = rig.render()
+            expectLevel(output[0], 0.124)
+            expectLevel(output[1], -1)
+
+            router.refreshClock(at: last + 1.5)
+            output = rig.render()
+            expectLevel(output[0], 0.124)
+            expectLevel(output[1], -1)
+            try #expect(!transport(of: unit, in: rig.engine).playing.boolValue)
+            try #expect(changedReadings(of: unit, in: rig.engine).allSatisfy { !$0 })
+        }
+    }
+
     @Test func theFirstTickOfAClockChangesNoTempo() async throws {
         try await withRouter(try await tempoReporter()) { router, rig in
             router.setClockSource("A")
@@ -330,7 +522,8 @@ struct MIDIRouterTests {
     @Test func settingTheSameClockSourceChangesNothing() async throws {
         try await withRouter(try await tempoReporter()) { router, rig in
             router.setClockSource("A")
-            let last = sendTicks(router)
+            // `setClockSource` reads the host clock, so the events keep to it too.
+            let last = sendTicks(router, after: router.hostSeconds())
             router.handle(.start, fromSource: "A", at: last)
             router.setClockSource("A")
             router.refreshClock(at: last)

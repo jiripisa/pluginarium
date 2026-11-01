@@ -9,6 +9,7 @@
 
 #define PR_SCRATCH_BUFFERS (PR_INPUT_BUSES * PR_BUS_CHANNELS + 1)
 #define PR_STRIP_BUFFERS 3
+#define PR_OUTPUT_CEILING 4.0f // +12 dB
 
 static inline uint32_t pr_min(uint32_t a, uint32_t b) { return a < b ? a : b; }
 
@@ -91,7 +92,24 @@ static PRSignal device_signal(PRChannels channels, const float *const *in, uint3
     return signal;
 }
 
-/// Renders one unit into stereo buffers. A failed render leaves them silent.
+static void silence_non_finite(float *samples, uint32_t frames) {
+    for (uint32_t i = 0; i < frames; i++) {
+        if (!isfinite(samples[i])) samples[i] = 0;
+    }
+}
+
+/// Keeps what leaves a strip, or reaches a device channel, finite and within the ceiling. This clips,
+/// so it only holds a runaway signal back from the speakers, and is no limiter.
+static void guard_output(float *samples, uint32_t frames) {
+    silence_non_finite(samples, frames);
+    for (uint32_t i = 0; i < frames; i++) {
+        samples[i] = fminf(fmaxf(samples[i], -PR_OUTPUT_CEILING), PR_OUTPUT_CEILING);
+    }
+}
+
+/// Renders one unit into stereo buffers. A failed render leaves them silent. A non-finite sample goes
+/// here, before a parallel branch sums with it or the next stage takes it into its state. Finite
+/// samples stay as they are: a stage may run hot if a later one brings the level down.
 static void render_stage(const PRNode *node, const PRSignal *main, const PRSignal *sidechain,
                          float *const *dest, uint32_t frames, const AudioTimeStamp *timeStamp) {
     OSStatus status = kAudioUnitErr_Uninitialized;
@@ -121,8 +139,13 @@ static void render_stage(const PRNode *node, const PRSignal *main, const PRSigna
     if (status != noErr) {
         memset(dest[0], 0, frames * sizeof(float));
         memset(dest[1], 0, frames * sizeof(float));
-    } else if (node->channels == 1) {
+        return;
+    }
+    silence_non_finite(dest[0], frames);
+    if (node->channels == 1) {
         memcpy(dest[1], dest[0], frames * sizeof(float));
+    } else {
+        silence_non_finite(dest[1], frames);
     }
 }
 
@@ -197,8 +220,18 @@ static void render_strip(PRStripNode *strip, uint32_t offset, uint32_t frames,
         rowOutput = swap;
     }
 
+    // Before the meter, so it shows what the device gets.
+    guard_output(signal[0], frames);
+    guard_output(signal[1], frames);
     update_meters(strip, signal, frames);
     write_output(strip->audioOut, signal, out, outChannels, offset, frames);
+}
+
+/// Every strip is within the ceiling, but several on one channel can sum past it.
+static void guard_device_output(float *const *out, uint32_t outChannels, uint32_t offset, uint32_t frames) {
+    for (uint32_t channel = 0; channel < outChannels; channel++) {
+        if (out[channel] != NULL) guard_output(out[channel] + offset, frames);
+    }
 }
 
 /// Takes the newest installed graph. The replaced one is finished with once this returns.
@@ -234,6 +267,7 @@ void pr_engine_render(PREngine *engine, uint32_t frames,
             for (uint32_t s = 0; s < graph->stripCount; s++) {
                 render_strip(&graph->strips[s], offset, chunk, in, inChannels, out, outChannels, &timeStamp);
             }
+            guard_device_output(out, outChannels, offset, chunk);
         }
         engine->sampleTime += chunk;
         pr_transport_advance(engine, chunk);

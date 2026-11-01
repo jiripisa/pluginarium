@@ -139,7 +139,7 @@ private struct Readout<Lead: View>: View {
     }
 }
 
-/// Why nothing is playing, when something is wrong with the audio device.
+/// Why nothing is playing, or nothing comes in, when something is wrong with the audio device.
 struct AudioFaults: View {
     let audio: AudioSession
 
@@ -150,6 +150,9 @@ struct AudioFaults: View {
         if audio.startFailure != nil {
             Readout(text: "Audio could not start", lead: { LED(tone: .fault) }, color: .fault)
                 .help(audio.startFailure ?? "")
+        }
+        if audio.engine.inputPermissionDenied {
+            Readout(text: "Microphone access denied, inputs are silent", lead: { LED(tone: .fault) }, color: .fault)
         }
     }
 }

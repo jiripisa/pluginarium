@@ -222,15 +222,17 @@ public final class ConfigurationRunner {
         resumeSettled()
     }
 
-    /// Call after audio has stopped and before destroying the engine. Installs an empty graph and
-    /// releases every plugin. The runner does nothing after this, and a load still under way is
-    /// discarded when it finishes.
+    /// Call after audio has stopped and before destroying the engine. Installs an empty graph, drops
+    /// queued MIDI and releases every plugin. The runner does nothing after this, and a load still
+    /// under way is discarded when it finishes.
     public func shutDown() {
         guard !isShutDown else { return }
         if seams.installGraph(engine, nil, 0) == failedInstall {
             // The old graph stays, but with audio stopped no render reaches its units.
             logger.error("Not enough memory for the empty graph")
         }
+        // No render took this while the device was gone, and the plugins it was meant for go here.
+        pr_engine_flush_midi(engine)
         isShutDown = true
         channels = []
         wanted = [:]

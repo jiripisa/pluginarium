@@ -257,9 +257,15 @@ public final class AudioEngine {
         }
     }
 
+    /// The question can stay open while the engine moves to a device without inputs, which a refusal
+    /// then says nothing about.
     private func microphoneAnswered(_ granted: Bool) {
+        if case .running(let device) = state, device.inputChannels.isEmpty {
+            inputPermissionDenied = false
+            return
+        }
         inputPermissionDenied = !granted
-        guard granted, case .running(let device) = state, !device.inputChannels.isEmpty, let lastSettings else { return }
+        guard granted, case .running = state, let lastSettings else { return }
         restart(lastSettings)
     }
 }

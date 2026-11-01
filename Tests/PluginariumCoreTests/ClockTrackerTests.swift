@@ -6,7 +6,7 @@ import Testing
         var tracker = ClockTracker()
         let interval = 60.0 / 124.0 / 24.0
         for tick in 0..<48 { tracker.receive(.clock, at: Double(tick) * interval) }
-        #expect(abs(tracker.tempo(at: 47 * interval) - 124) < 0.1)
+        #expect(abs((tracker.reading.tempo ?? 0) - 124) < 0.1)
     }
 
     @Test func clockStopsAfterOneSecondOfSilence() {
@@ -18,19 +18,18 @@ import Testing
         #expect(!tracker.isClockRunning(at: 1.1))
     }
 
-    @Test func tempoKeepsLastValueThenDefaults() {
-        #expect(ClockTracker().tempo(at: 0) == 120)
+    @Test func tempoStartsUnknownAndKeepsItsLastValue() {
+        #expect(ClockTracker().reading.tempo == nil)
         var tracker = ClockTracker()
         let interval = 60.0 / 124.0 / 24.0
         for tick in 0..<30 { tracker.receive(.clock, at: Double(tick) * interval) }
-        #expect(abs(tracker.tempo(at: 31 * interval) - 124) < 0.1)
-        #expect(abs(tracker.tempo(at: 100) - 124) < 0.1)
+        #expect(abs((tracker.reading.tempo ?? 0) - 124) < 0.1)
     }
 
     @Test func singleTickGivesNoTempo() {
         var tracker = ClockTracker()
         tracker.receive(.clock, at: 0)
-        #expect(tracker.tempo(at: 0.01) == 120)
+        #expect(tracker.reading.tempo == nil)
     }
 
     @Test func gapDiscardsHistoryButKeepsLastTempo() {
@@ -39,10 +38,10 @@ import Testing
         for tick in 0..<10 { tracker.receive(.clock, at: Double(tick) * fast) }
         // Pause of 5 seconds, then a new tick: the pause must not skew the mean.
         tracker.receive(.clock, at: 5)
-        #expect(abs(tracker.tempo(at: 5) - 120) < 0.1)
+        #expect(abs((tracker.reading.tempo ?? 0) - 120) < 0.1)
         let slow = 60.0 / 90.0 / 24.0
         for tick in 1..<10 { tracker.receive(.clock, at: 5 + Double(tick) * slow) }
-        #expect(abs(tracker.tempo(at: 6) - 90) < 0.1)
+        #expect(abs((tracker.reading.tempo ?? 0) - 90) < 0.1)
     }
 
     @Test func tempoUsesOnlyLastTwentyFourIntervals() {
@@ -52,7 +51,7 @@ import Testing
         for _ in 0..<10 { tracker.receive(.clock, at: time); time += slow }
         let fast = 60.0 / 150.0 / 24.0
         for _ in 0..<100 { tracker.receive(.clock, at: time); time += fast }
-        #expect(abs(tracker.tempo(at: time) - 150) < 0.1)
+        #expect(abs((tracker.reading.tempo ?? 0) - 150) < 0.1)
     }
 
     @Test func transportFollowsStartStopContinue() {
@@ -140,6 +139,48 @@ import Testing
         tracker.receive(.start, at: 0)
         tracker.receive(.stop, at: 1)
         #expect(!tracker.reading.justStarted)
+    }
+
+    @Test func aPlayingTransportIsStrandedASecondAfterTheLastTick() {
+        var tracker = ClockTracker()
+        tracker.receive(.start, at: 0)
+        tracker.receive(.clock, at: 5)
+        #expect(!tracker.reading.isStranded(at: 6.0))
+        #expect(tracker.reading.isStranded(at: 6.1))
+    }
+
+    @Test(arguments: [MIDIEvent.start, .resume])
+    func aStartIsHeardEvenWhenTheLastTickIsOld(event: MIDIEvent) {
+        var tracker = ClockTracker()
+        tracker.receive(.clock, at: 0)
+        tracker.receive(event, at: 10)
+        #expect(!tracker.reading.isClockRunning(at: 10))
+        #expect(!tracker.reading.isStranded(at: 11.0))
+        #expect(tracker.reading.isStranded(at: 11.1))
+    }
+
+    @Test func aStartThatNeverGetsATickIsStranded() {
+        var tracker = ClockTracker()
+        tracker.receive(.start, at: 0)
+        #expect(!tracker.reading.isStranded(at: 1.0))
+        #expect(tracker.reading.isStranded(at: 1.1))
+    }
+
+    @Test func aStoppedTransportIsNeverStranded() {
+        var tracker = ClockTracker()
+        #expect(!tracker.reading.isStranded(at: 100))
+        tracker.receive(.start, at: 0)
+        tracker.receive(.clock, at: 0)
+        tracker.receive(.stop, at: 0.5)
+        #expect(!tracker.reading.isStranded(at: 100))
+    }
+
+    @Test func aStopLeavesATickThatComesLaterStopped() {
+        var tracker = ClockTracker()
+        tracker.receive(.start, at: 0)
+        tracker.receive(.stop, at: 5)
+        tracker.receive(.clock, at: 6)
+        #expect(!tracker.isPlaying)
     }
 
     @Test func channelVoiceEventsAreIgnored() {

@@ -66,6 +66,37 @@ private let vasc = PluginID(type: "aumu", subtype: "VasC", manufacturer: "RoCl")
     #expect(store.load() == AppSettings.defaults)
 }
 
+@Test func settingsFileWithoutRecentPluginsKeepsEverythingElse() throws {
+    let file = try tempDir().appending(path: "settings.json")
+    let store = SettingsStore(file: file)
+    var settings = AppSettings.defaults
+    settings.audioDeviceUID = "fuse"
+    settings.sampleRate = 96000
+    settings.bufferFrames = 256
+    settings.clockSource = "Keys"
+    settings.instrumentPositions = [.init(midiIn: .init(sourceName: "Keys", channel: .channel(3)), audioOut: .stereo(left: 4, right: 5))]
+    settings.effectPositions = []
+    settings.recentPlugins = [vasc]
+    try store.save(settings)
+
+    var fields = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+    #expect(fields.removeValue(forKey: "recentPlugins") != nil)
+    try JSONSerialization.data(withJSONObject: fields).write(to: file)
+
+    settings.recentPlugins = []
+    #expect(store.load() == settings)
+}
+
+@Test func settingsFileWithoutTheOptionalFieldsReads() throws {
+    let file = try tempDir().appending(path: "settings.json")
+    let store = SettingsStore(file: file)
+    try store.save(.defaults)
+    let text = try String(contentsOf: file, encoding: .utf8)
+    #expect(!text.contains("audioDeviceUID"))
+    #expect(!text.contains("clockSource"))
+    #expect(store.load() == AppSettings.defaults)
+}
+
 @Test func capabilityCachePersistsAndSurvivesCorruption() throws {
     let file = try tempDir().appending(path: "caps.json")
     let caps = PluginCapabilities(acceptsMIDI: true, hasAudioIn: false, hasSidechain: false)

@@ -118,9 +118,15 @@ public final class SettingsStore {
         self.file = file
     }
 
-    /// Defaults when the file is missing or corrupt.
+    /// Defaults when the file is missing or corrupt, and the log says so for a corrupt one, since the
+    /// picked device, positions and clock source are gone with it.
     public func load() -> AppSettings {
-        read(AppSettings.self, from: file) ?? .defaults
+        guard FileManager.default.fileExists(atPath: file.path) else { return .defaults }
+        guard let settings = read(AppSettings.self, from: file) else {
+            logger.error("Falling back to the default settings")
+            return .defaults
+        }
+        return settings
     }
 
     public func save(_ settings: AppSettings) throws {

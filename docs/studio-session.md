@@ -48,7 +48,8 @@ Timings, from the ledger:
 
 - With a plugin window open and a changed sound, Command-S is disabled and the
   bar reads Saved until the window closes.
-- The render core has no limiter, DC block or non-finite guard.
+- The render core has no limiter or DC block. It only silences non-finite
+  samples and clips output at +12 dB.
 
 ## Studio session checklist (Task 18)
 

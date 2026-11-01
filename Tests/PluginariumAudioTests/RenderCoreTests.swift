@@ -272,6 +272,142 @@ struct RenderCoreTests {
         expectLevel(rig.render()[0], 0)
     }
 
+    @Test("A flush drops what waits in every ring, and the rings keep working")
+    func flushDropsQueuedMIDI() async throws {
+        let rig = Rig()
+        rig.install([
+            StripSpec(source: try await instrument(), audioOut: outs01, midiSlot: 0),
+            StripSpec(source: try await instrument(), audioOut: PRChannels(left: 2, right: 3), midiSlot: 63),
+        ])
+        rig.press(slot: 0)
+        rig.press(slot: 63)
+        pr_engine_flush_midi(rig.engine)
+        var output = rig.render()
+        expectLevel(output[0], 0)
+        expectLevel(output[2], 0)
+
+        rig.press(slot: 0)
+        rig.press(slot: 63)
+        output = rig.render()
+        expectLevel(output[0], 0.25)
+        expectLevel(output[2], 0.25)
+    }
+
+    // MARK: - Output guard
+
+    /// A voice puts out what it reads, so `input` here is what the unit gives the render core.
+    private func voiceStrip(reading left: Int32, out: PRChannels = outs01) async throws -> StripSpec {
+        StripSpec(source: try await voice(), audioIn: PRChannels(left: left, right: left + 1), audioOut: out)
+    }
+
+    private func expectMeters(_ rig: Rig, strip: UInt32, _ level: Float, sourceLocation: SourceLocation = #_sourceLocation) {
+        let meters = rig.meters(strip: strip)
+        #expect(meters.left == level, sourceLocation: sourceLocation)
+        #expect(meters.right == level, sourceLocation: sourceLocation)
+    }
+
+    @Test("A non-finite sample reaches neither the device nor the meter", arguments: [Float.nan, .infinity, -.infinity])
+    func nonFiniteIsSilence(value: Float) async throws {
+        let rig = Rig()
+        rig.install([try await voiceStrip(reading: 0)])
+        let output = rig.render(input: constantInput([0: value, 1: value]))
+        expectLevel(output[0], 0)
+        expectLevel(output[1], 0)
+        expectMeters(rig, strip: 0, 0)
+    }
+
+    @Test("A non-finite sample goes alone, and the meter keeps the rest of the block")
+    func nonFiniteSampleLeavesTheRest() async throws {
+        let rig = Rig()
+        rig.install([try await voiceStrip(reading: 0)])
+        var side = [Float](repeating: 0.5, count: Int(blockFrames))
+        side[10] = .nan
+        let output = rig.render(input: [side, side])
+        for (index, sample) in output[0].enumerated() { #expect(sample == (index == 10 ? 0 : 0.5)) }
+        expectMeters(rig, strip: 0, 0.5)
+    }
+
+    @Test(
+        "A sample past the ceiling stops there, and the meter shows it",
+        arguments: [(Float(8), Float(4)), (-8, -4), (1e30, 4)]
+    )
+    func runawayStopsAtTheCeiling(value: Float, reached: Float) async throws {
+        let rig = Rig()
+        rig.install([try await voiceStrip(reading: 0)])
+        let output = rig.render(input: constantInput([0: value, 1: value]))
+        expectLevel(output[0], reached)
+        expectLevel(output[1], reached)
+        expectMeters(rig, strip: 0, abs(reached))
+    }
+
+    @Test("A hot signal under the ceiling passes unchanged", arguments: [Float(3), -3])
+    func hotSignalPasses(value: Float) async throws {
+        let rig = Rig()
+        rig.install([try await voiceStrip(reading: 0)])
+        let output = rig.render(input: constantInput([0: value, 1: value]))
+        for sample in output[0] { #expect(sample == value) }
+        expectMeters(rig, strip: 0, abs(value))
+    }
+
+    @Test("The ceiling holds on a mono output")
+    func ceilingHoldsOnMonoOutput() async throws {
+        let rig = Rig()
+        rig.install([try await voiceStrip(reading: 0, out: PRChannels(left: 5, right: -1))])
+        expectLevel(rig.render(input: constantInput([0: 8, 1: 8]))[5], 4)
+    }
+
+    @Test("The ceiling is for what leaves the strip, not for its stages")
+    func ceilingLeavesStagesAlone() async throws {
+        let strip = StripSpec(
+            source: try await voice(), audioIn: PRChannels(left: 0, right: 1),
+            rows: [[EffectSpec(plugin: try await gain())], [EffectSpec(plugin: try await gain())]]
+        )
+        expectLevel(renderOnce(strips: [strip], input: constantInput([0: 12, 1: 12]))[0], 3)
+    }
+
+    @Test("A non-finite strip leaves the others on its output alone")
+    func nonFiniteStripDoesNotPoisonTheSum() async throws {
+        let rig = Rig()
+        rig.install([try await voiceStrip(reading: 0), try await voiceStrip(reading: 2)])
+        let output = rig.render(input: constantInput([0: .nan, 1: .infinity, 2: 0.5, 3: 0.5]))
+        expectLevel(output[0], 0.5)
+        expectLevel(output[1], 0.5)
+    }
+
+    @Test("A non-finite parallel branch leaves the other branches alone")
+    func nonFiniteBranchDoesNotPoisonTheRow() async throws {
+        let strip = StripSpec(
+            source: try await voice(), audioIn: PRChannels(left: 0, right: 1),
+            rows: [[
+                EffectSpec(plugin: try await gain()),
+                EffectSpec(plugin: try await sidechainUnit(), sidechain: PRChannels(left: 2, right: -1)),
+            ]]
+        )
+        let output = renderOnce(strips: [strip], input: constantInput([0: 0.5, 1: 0.5, 2: .nan]))
+        expectLevel(output[0], 0.25)
+        expectLevel(output[1], 0.25)
+    }
+
+    @Test("Strips that sum past the ceiling stop there, on the device only")
+    func sumStopsAtTheCeiling() async throws {
+        let rig = Rig()
+        rig.install([try await voiceStrip(reading: 0), try await voiceStrip(reading: 0)])
+        let output = rig.render(input: constantInput([0: 3, 1: -3]))
+        expectLevel(output[0], 4)
+        expectLevel(output[1], -4)
+        expectMeters(rig, strip: 0, 3)
+        expectMeters(rig, strip: 1, 3)
+    }
+
+    @Test("The ceiling holds in every chunk of a large block")
+    func ceilingHoldsAcrossChunks() async throws {
+        let frames: UInt32 = 256
+        let rig = Rig(maxFrames: 64)
+        rig.install([try await voiceStrip(reading: 0), try await voiceStrip(reading: 0)])
+        let hot = [Float](repeating: 3, count: Int(frames))
+        expectLevel(rig.render(frames: frames, input: [hot, hot])[0], 4)
+    }
+
     // MARK: - Meters and load
 
     @Test("Meters report the peak")

@@ -73,7 +73,8 @@ void pr_engine_set_sample_rate(PREngine *engine, double sampleRate);
 void pr_engine_collect_garbage(PREngine *engine);
 
 /// Clears out, then renders every strip of the current graph. A block larger than
-/// maxFrames renders in chunks. Output is not clipped.
+/// maxFrames renders in chunks. A non-finite sample from a unit becomes 0. What leaves a strip, and
+/// what reaches a device channel, is clipped to plus or minus 4 (+12 dB).
 void pr_engine_render(PREngine *engine, uint32_t frames,
                       const float *const *in, uint32_t inChannels,
                       float *const *out, uint32_t outChannels);
@@ -81,6 +82,10 @@ void pr_engine_render(PREngine *engine, uint32_t frames,
 /// Queues a MIDI message for the strip on slot 0...63. Other slots are ignored,
 /// and a full ring drops the message.
 void pr_engine_push_midi(PREngine *engine, int32_t slot, uint8_t status, uint8_t d1, uint8_t d2);
+
+/// Drops every queued MIDI message, so nothing meant for the units that left reaches the next ones.
+/// Call only while audio is stopped: this takes the place of the render thread on the rings.
+void pr_engine_flush_midi(PREngine *engine);
 
 /// A tempo that is not positive keeps the last one. The default is 120 BPM, stopped.
 void pr_engine_set_transport(PREngine *engine, double tempo, bool playing);
@@ -92,7 +97,8 @@ void pr_engine_set_transport(PREngine *engine, double tempo, bool playing);
 void pr_engine_rewind_transport(PREngine *engine);
 
 /// The highest peak of the strip in the newest installed graph since the last read, which this
-/// resets, so a meter polled slower than the blocks still sees every peak. 0 for a strip that does
+/// resets, so a meter polled slower than the blocks still sees every peak. Read after the strip's
+/// guard, so it shows what the strip puts out: never more than the ceiling. 0 for a strip that does
 /// not exist. Control thread only.
 void pr_engine_read_meters(PREngine *engine, uint32_t strip, float *left, float *right);
 

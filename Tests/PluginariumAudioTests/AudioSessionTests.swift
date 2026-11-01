@@ -456,7 +456,23 @@ struct AudioSessionTests {
 
         channel.midiIn = nil
         await bench.session.update(configuration(channel))
-        bench.session.router.handle(.channelVoice(status: 0x80, data1: 60, data2: 0), fromSource: "Keys", at: 0)
+        bench.session.router.handle(keyDown, fromSource: "Keys", at: 0)
+        expectLevel(bench.render()[0], 0)
+    }
+
+    @Test("A change of MIDI device lets go of what sounds, and other channels play on")
+    func changedRouteLetsGoOfHeldNotes() async {
+        let bench = Bench()
+        defer { bench.session.close() }
+        let keys = MIDIRoute(sourceName: "Keys", channel: .all)
+        var changed = instrumentChannel(midiIn: keys)
+        let untouched = instrumentChannel(out: out01, midiIn: keys)
+        await bench.session.open(configuration(changed, untouched), settings: .defaults)
+        bench.session.router.handle(keyDown, fromSource: "Keys", at: 0)
+        expectLevel(bench.render()[0], 2 * instrumentLevel)
+
+        changed.midiIn = MIDIRoute(sourceName: "Pads", channel: .all)
+        await bench.session.update(configuration(changed, untouched))
         expectLevel(bench.render()[0], instrumentLevel)
     }
 
@@ -571,6 +587,21 @@ struct AudioSessionTests {
         bench.session.router.handle(keyDown, fromSource: "Keys", at: 0)
 
         expectLevel(bench.render()[0], instrumentLevel)
+    }
+
+    @Test("A note played while the device leaves does not sound when it returns")
+    func noteDuringDeviceLossStaysSilent() async {
+        let bench = Bench()
+        defer { bench.session.close() }
+        let route = MIDIRoute(sourceName: "Keys", channel: .all)
+        await bench.session.open(configuration(instrumentChannel(midiIn: route)), settings: .defaults)
+        let router = bench.session.router
+        bench.opened[0].onStop = { router.handle(keyDown, fromSource: "Keys", at: 0) }
+
+        bench.loseDevices()
+        await bench.bringDevice(device("a"))
+
+        expectLevel(bench.render()[0], 0)
     }
 
     @Test("What a plugin was doing survives losing the device")

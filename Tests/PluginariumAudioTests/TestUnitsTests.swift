@@ -8,7 +8,7 @@ struct TestUnitsTests {
     func appUnitsLeaveOutTestSignals() {
         let subtypes = safeTestUnits.map(\.subtype)
         #expect(!subtypes.isEmpty)
-        for signal in ["PlTp", "PlIn", "PlNl"] { #expect(!subtypes.contains(signal)) }
+        for signal in ["PlTp", "PlIn", "PlNl", "PlOf"] { #expect(!subtypes.contains(signal)) }
     }
 
     @Test("A unit the app can load stays silent with no input, even with a note held")

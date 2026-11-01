@@ -91,6 +91,14 @@ void pr_midi_drain(PREngine *engine, const PRGraph *graph) {
     }
 }
 
+void pr_engine_flush_midi(PREngine *engine) {
+    for (uint32_t slot = 0; slot < PR_MIDI_SLOTS; slot++) {
+        PRMidiRing *ring = &engine->midi[slot];
+        uint32_t head = atomic_load_explicit(&ring->head, memory_order_acquire);
+        atomic_store_explicit(&ring->tail, head, memory_order_release);
+    }
+}
+
 // MARK: - Transport
 
 void pr_engine_set_transport(PREngine *engine, double tempo, bool playing) {

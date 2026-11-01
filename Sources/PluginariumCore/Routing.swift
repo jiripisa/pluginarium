@@ -49,6 +49,22 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.recentPlugins = recentPlugins
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case audioDeviceUID, sampleRate, bufferFrames, clockSource, instrumentPositions, effectPositions, recentPlugins
+    }
+
+    /// A file from before `recentPlugins` has no such key.
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        audioDeviceUID = try values.decodeIfPresent(String.self, forKey: .audioDeviceUID)
+        sampleRate = try values.decode(Double.self, forKey: .sampleRate)
+        bufferFrames = try values.decode(Int.self, forKey: .bufferFrames)
+        clockSource = try values.decodeIfPresent(String.self, forKey: .clockSource)
+        instrumentPositions = try values.decode([InstrumentPosition].self, forKey: .instrumentPositions)
+        effectPositions = try values.decode([EffectPosition].self, forKey: .effectPositions)
+        recentPlugins = try values.decodeIfPresent([PluginID].self, forKey: .recentPlugins) ?? []
+    }
+
     /// Zero-based channels. Instruments play on 2-3 upward (7 positions), effects read from 8-9 and
     /// write to 10-11 upward (3 positions); nothing runs past channels 14-15.
     public static let defaults = AppSettings(

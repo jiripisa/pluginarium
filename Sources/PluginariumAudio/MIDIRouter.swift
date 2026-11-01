@@ -10,6 +10,11 @@ private let logger = Logger(subsystem: "io.jp4.pluginarium", category: "midi")
 
 private let clockPollInterval = Duration.milliseconds(250)
 
+private let controlChange: UInt8 = 0xB0
+private let allSoundOff: UInt8 = 120
+private let allNotesOff: UInt8 = 123
+private let midiChannels: ClosedRange<UInt8> = 0...15
+
 /// Where the events of one route go.
 public struct MIDIRouteTarget: Equatable, Sendable {
     public var route: MIDIRoute
@@ -27,7 +32,8 @@ public struct MIDIRouteTarget: Equatable, Sendable {
 ///
 /// `clockRunning` and `tempo` follow at 4 Hz, from a poll on the main actor, so the CoreMIDI thread
 /// never hops here and a clock that goes silent still shows. `tempo` is what plugins are told, which
-/// is the last tempo known, or 120 BPM if there has been none.
+/// is the last tempo known, or 120 BPM if there has been none. That poll also stops the transport of
+/// a source that went silent without a Stop, and then only a Start or Continue starts it again.
 ///
 /// The router does not own the engine, and must go before the engine does.
 @MainActor
@@ -80,7 +86,9 @@ public final class MIDIRouter {
         sources = []
     }
 
-    /// Applies at once: the next event goes by these routes.
+    /// Applies at once: the next event goes by these routes. The note off of a note held on a route
+    /// that left would go nowhere, so its slot gets all sound off and all notes off. A slot whose
+    /// route stays gets nothing, so an edit elsewhere cuts no note.
     public func setRoutes(_ routes: [MIDIRouteTarget]) {
         guard !isClosed else { return }
         routing.setRoutes(routes)
@@ -147,18 +155,21 @@ final class SourceTag: Sendable {
 ///
 /// Routing inside the lock, rather than retaining the table and routing after, means a replaced
 /// table is never used again and never freed on the CoreMIDI thread, a clock that was just replaced
-/// cannot overwrite the transport, and nothing reaches the engine after `close`.
+/// cannot overwrite the transport, and nothing reaches the engine after `close`. The all-off messages
+/// of a route change go in with the swap, so they come after every note of the old table.
 ///
 /// `pr_engine_push_midi` takes one producer per slot. That producer is the one thread CoreMIDI calls
-/// the port's receive block on, whichever source a message came from, or the test's thread for a
-/// `handle` in a test. Every push is under the lock, so not even both together can overlap.
+/// the port's receive block on, whichever source a message came from, the main actor for a route
+/// change, or the test's thread for a `handle` in a test. Every push is under the lock, so none of
+/// these can overlap.
 private final class MIDIRouting: Sendable {
 
     private struct State {
         var routes: [MIDIRouteTarget] = []
         var clockSource: String?
-        /// Only `handle` calls into it. The main actor replaces it whole with a new one and reads
-        /// `reading`, so the CoreMIDI thread owns its tick storage and never copies it.
+        /// Only `handle` gives it ticks. The main actor replaces it whole with a new one, reads
+        /// `reading` and stops a stranded transport, so the CoreMIDI thread owns its tick storage and
+        /// never copies it.
         var tracker = ClockTracker()
         var reading = ClockTracker().reading
         /// What plugins are told, which outlives any one tracker.
@@ -197,7 +208,20 @@ private final class MIDIRouting: Sendable {
 
     func setRoutes(_ routes: [MIDIRouteTarget]) {
         var replaced = routes
-        state.withLock { swap(&$0.routes, &replaced) }
+        state.withLock { state in
+            swap(&state.routes, &replaced)
+            for target in replaced where !state.routes.contains(target) {
+                pushAllOff(slot: target.slot)
+            }
+        }
+    }
+
+    /// 32 messages, far less than a ring holds. Only under the lock.
+    private func pushAllOff(slot: Int32) {
+        for channel in midiChannels {
+            pr_engine_push_midi(engine, slot, controlChange | channel, allSoundOff, 0)
+            pr_engine_push_midi(engine, slot, controlChange | channel, allNotesOff, 0)
+        }
     }
 
     func setClockSource(_ name: String?) {
@@ -212,7 +236,15 @@ private final class MIDIRouting: Sendable {
     }
 
     func clock(at seconds: Double) -> (running: Bool, tempo: Double) {
-        state.withLock { ($0.reading.isClockRunning(at: seconds), $0.tempo) }
+        state.withLock { state in
+            if state.reading.isStranded(at: seconds) {
+                // In the tracker as well, or the next tick of a clock that returns would restart it.
+                state.tracker.receive(.stop, at: seconds)
+                state.reading = state.tracker.reading
+                pr_engine_set_transport(engine, state.tempo, false)
+            }
+            return (state.reading.isClockRunning(at: seconds), state.tempo)
+        }
     }
 
     /// Past this, no event reaches the engine, not even one already on its way.

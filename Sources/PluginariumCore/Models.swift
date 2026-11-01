@@ -1,6 +1,5 @@
 import Foundation
 
-
 /// Identifies an Audio Unit by its component description, as four-character codes.
 public struct PluginID: Hashable, Codable, Sendable {
     public var type: String

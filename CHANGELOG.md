@@ -18,3 +18,5 @@
 - Follow Start/Stop on every channel and insert effect, saved in the configuration. Tempo always reaches a plugin, but it sees the transport start and stop only with the switch on. Instruments start with it off, so an internal sequencer stays still until you ask for it, and effects start with it on.
 - In a low window the effects of a channel scroll, so its warnings and audio output stay in view.
 - A plugin counts as changed only when its sound differs between opening and closing its window, and that marks the configuration unsaved. Plugins that stamp the time or renew their ids in their state, like Mariana, do not read as changed when nobody touched them. A long plugin name on a channel shrinks to fit before it is cut off.
+- A plugin that runs away can no longer blast the outputs: broken samples become silence and the signal stops at +12 dB, on every channel and on the device. This is a safety ceiling that clips, not a limiter.
+- When microphone access is denied, the mixer and Settings say "Microphone access denied, inputs are silent" instead of leaving every audio and sidechain input quietly dead.

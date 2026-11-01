@@ -87,6 +87,7 @@ private var signalEntries: [Entry] {
         Entry(unitClass: TestInstrument.self, type: "aumu", subtype: "PlIn", name: "Test Instrument"),
         Entry(unitClass: TestTempo.self, type: "aumu", subtype: "PlTp", name: "Test Tempo"),
         Entry(unitClass: TestNullPull.self, type: "aufx", subtype: "PlNl", name: "Test Null Pull"),
+        Entry(unitClass: TestAllOff.self, type: "aumu", subtype: "PlOf", name: "Test All Off"),
     ]
 }
 
@@ -200,14 +201,19 @@ private func mix(
     }
 }
 
+private let allSoundOff: UInt8 = 120
+private let allNotesOff: UInt8 = 123
+
 /// Shared count of held notes, written by the MIDI block and read by the render block.
 private final class HeldNotes: Sendable {
     private let count = Atomic<Int>(0)
     var isHeld: Bool { count.load(ordering: .relaxed) > 0 }
 
-    func handle(status: UInt8, velocity: UInt8) {
+    func handle(status: UInt8, data1: UInt8, data2: UInt8) {
         switch status & 0xF0 {
-        case 0x90 where velocity > 0:
+        case 0xB0 where data1 == allSoundOff || data1 == allNotesOff:
+            count.store(0, ordering: .relaxed)
+        case 0x90 where data2 > 0:
             count.add(1, ordering: .relaxed)
         case 0x80, 0x90:
             // Never go below zero.
@@ -223,7 +229,50 @@ private final class HeldNotes: Sendable {
     }
 }
 
-/// aumu/PlIn/Plug: constant 0.25 while a note is held.
+/// Which MIDI channels have sent each all-off controller, written by the MIDI block and read by the
+/// render block.
+private final class AllOffChannels: Sendable {
+    private let sound = Atomic<UInt16>(0)
+    private let notes = Atomic<UInt16>(0)
+
+    var soundCount: Int { sound.load(ordering: .relaxed).nonzeroBitCount }
+    var notesCount: Int { notes.load(ordering: .relaxed).nonzeroBitCount }
+
+    func handle(status: UInt8, controller: UInt8) {
+        guard status & 0xF0 == 0xB0 else { return }
+        let channel = UInt16(1) << (status & 0x0F)
+        if controller == allSoundOff { sound.bitwiseOr(channel, ordering: .relaxed) }
+        if controller == allNotesOff { notes.bitwiseOr(channel, ordering: .relaxed) }
+    }
+}
+
+/// aumu/PlOf/Plug: reports the all-off controllers it has had. The first output is the number of
+/// MIDI channels that sent All Sound Off ÷ 100, the second the same for All Notes Off.
+private final class TestAllOff: TestUnit {
+    private let channels = AllOffChannels()
+
+    override var scheduleMIDIEventBlock: AUScheduleMIDIEventBlock? {
+        let channels = channels
+        return { _, _, length, bytes in
+            guard length >= 3 else { return }
+            channels.handle(status: bytes[0], controller: bytes[1])
+        }
+    }
+
+    override var internalRenderBlock: AUInternalRenderBlock {
+        let channels = channels
+        return { _, _, frames, _, output, _, _ in
+            let values = [Float(channels.soundCount) / 100, Float(channels.notesCount) / 100]
+            for (channel, buffer) in UnsafeMutableAudioBufferListPointer(output).enumerated() {
+                guard channel < values.count, let data = buffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
+                for frame in 0..<Int(frames) { data[frame] = values[channel] }
+            }
+            return noErr
+        }
+    }
+}
+
+/// aumu/PlIn/Plug: constant 0.25 while a note is held. All Sound Off and All Notes Off end every note.
 private final class TestInstrument: TestUnit {
     private let notes = HeldNotes()
 
@@ -231,7 +280,7 @@ private final class TestInstrument: TestUnit {
         let notes = notes
         return { _, _, length, bytes in
             guard length >= 3 else { return }
-            notes.handle(status: bytes[0], velocity: bytes[2])
+            notes.handle(status: bytes[0], data1: bytes[1], data2: bytes[2])
         }
     }
 

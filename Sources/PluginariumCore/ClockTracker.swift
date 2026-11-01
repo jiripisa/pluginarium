@@ -12,6 +12,8 @@ public struct ClockTracker: Sendable {
     private var tickCount = 0
     private var nextSlot = 0
     private var lastTickTime: Double?
+    /// The last tick, start or continue.
+    private var lastHeardTime: Double?
     private var lastTempo: Double?
     private var justStarted = false
 
@@ -22,16 +24,16 @@ public struct ClockTracker: Sendable {
     public mutating func receive(_ event: MIDIEvent, at seconds: Double) {
         justStarted = event == .start
         switch event {
-        case .clock: receiveTick(at: seconds)
-        case .start, .resume: isPlaying = true
-        case .stop: isPlaying = false
-        case .channelVoice: break
+        case .clock:
+            receiveTick(at: seconds)
+        case .start, .resume:
+            isPlaying = true
+            lastHeardTime = seconds
+        case .stop:
+            isPlaying = false
+        case .channelVoice:
+            break
         }
-    }
-
-    /// Mean-interval tempo, or the last known tempo, or 120 BPM if there never was one.
-    public func tempo(at seconds: Double) -> Double {
-        lastTempo ?? Self.defaultTempo
     }
 
     public func isClockRunning(at seconds: Double) -> Bool {
@@ -40,7 +42,7 @@ public struct ClockTracker: Sendable {
 
     /// A copy of what the tracker knows, for a thread that does not own it.
     public var reading: Reading {
-        Reading(tempo: lastTempo, isPlaying: isPlaying, justStarted: justStarted, lastTickTime: lastTickTime)
+        Reading(tempo: lastTempo, isPlaying: isPlaying, justStarted: justStarted, lastTickTime: lastTickTime, lastHeardTime: lastHeardTime)
     }
 
     /// Plain values, so taking one shares nothing with the tracker and its next tick still does not
@@ -53,17 +55,27 @@ public struct ClockTracker: Sendable {
         /// continue plays on from where it stopped.
         public let justStarted: Bool
         private let lastTickTime: Double?
+        private let lastHeardTime: Double?
 
-        fileprivate init(tempo: Double?, isPlaying: Bool, justStarted: Bool, lastTickTime: Double?) {
+        fileprivate init(tempo: Double?, isPlaying: Bool, justStarted: Bool, lastTickTime: Double?, lastHeardTime: Double?) {
             self.tempo = tempo
             self.isPlaying = isPlaying
             self.justStarted = justStarted
             self.lastTickTime = lastTickTime
+            self.lastHeardTime = lastHeardTime
         }
 
         public func isClockRunning(at seconds: Double) -> Bool {
             guard let last = lastTickTime else { return false }
             return seconds - last <= ClockTracker.clockTimeout
+        }
+
+        /// True when the transport plays and the source has gone silent, so no Stop is coming. A start
+        /// or continue counts as hearing from it: a source that only clocks while it plays has no
+        /// recent tick at that moment, and its first one is still on the way.
+        public func isStranded(at seconds: Double) -> Bool {
+            guard isPlaying, let last = lastHeardTime else { return false }
+            return seconds - last > ClockTracker.clockTimeout
         }
     }
 
@@ -76,6 +88,7 @@ public struct ClockTracker: Sendable {
         nextSlot = (nextSlot + 1) % tickTimes.count
         tickCount = min(tickCount + 1, tickTimes.count)
         lastTickTime = seconds
+        lastHeardTime = seconds
 
         guard tickCount >= 2 else { return }
         let oldest = tickTimes[(nextSlot - tickCount + tickTimes.count) % tickTimes.count]

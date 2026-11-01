@@ -1113,6 +1113,30 @@ struct RunnerTests {
         }
     }
 
+    @Test func aNoteQueuedBeforeShutDownNeverReachesTheNextRunner() async throws {
+        registerTestUnits()
+        let rig = Rig()
+        func makeRunner() -> ConfigurationRunner {
+            ConfigurationRunner(
+                engine: rig.engine, sampleRate: sampleRate, maxFrames: unitMaxFrames,
+                deviceInputs: 8, deviceOutputs: 8, cache: makeCache()
+            )
+        }
+        let channel = instrumentChannel()
+        let first = makeRunner()
+        await first.apply(configuration(channel))
+        try press(channel, first, rig)
+        first.shutDown()
+
+        let second = makeRunner()
+        defer { withExtendedLifetime(rig) { second.shutDown() } }
+        await second.apply(configuration(channel))
+        expectLevel(rig.render()[0], 0)
+
+        try press(channel, second, rig)
+        expectLevel(rig.render()[0], 0.25)
+    }
+
     @Test func nothingTouchesTheEngineAfterShutDown() async throws {
         registerTestUnits()
         var rig: Rig? = Rig()

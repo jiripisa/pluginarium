@@ -1036,6 +1036,21 @@ struct AudioEngineTests {
         #expect(!bench.engine.inputPermissionDenied)
     }
 
+    @Test("A refusal that comes after a move to an output-only device leaves the flag down")
+    func lateRefusalOnAnOutputOnlyDevice() async throws {
+        let plain = device("plain")
+        let bench = Bench(devices: [Self.interface, plain])
+        bench.microphone = .notDetermined
+        try bench.engine.start(settings: settings(for: Self.interface))
+        try bench.engine.start(settings: settings(for: plain))
+
+        bench.answerMicrophone?(false)
+        await bench.settle()
+
+        #expect(bench.engine.state == .running(plain))
+        #expect(!bench.engine.inputPermissionDenied)
+    }
+
     // MARK: - dspLoad
 
     @Test("dspLoad reads the render core's load")
