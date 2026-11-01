@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pluginarium for macOS</title>
+<meta name="description" content="Your plugins as instruments in the studio. Pluginarium hosts Audio Units on a Mac in a dawless studio, without opening a DAW.">
+<meta property="og:title" content="Pluginarium">
+<meta property="og:description" content="Your plugins as instruments in the studio.">
+<meta property="og:image" content="https://jiripisa.github.io/pluginarium/assets/pluginarium-window.png">
+<meta property="og:type" content="website">
+<link rel="alternate" hreflang="en" href="https://jiripisa.github.io/pluginarium/">
+<link rel="alternate" hreflang="cs" href="https://jiripisa.github.io/pluginarium/cs/">
+<link rel="alternate" hreflang="x-default" href="https://jiripisa.github.io/pluginarium/">
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<header class="wrap masthead">
+  <a class="brand" href="#top"><img src="assets/icon.png" alt="" width="32" height="32">Pluginarium</a>
+  <nav aria-label="Page">
+    <a href="manual.html">Manual</a>
+    <a href="#get">Download</a>
+    <a href="https://github.com/jiripisa/pluginarium">GitHub</a>
+    <a class="lang" href="cs/" hreflang="cs" lang="cs">Česky</a>
+  </nav>
+</header>
+
+<main id="top">
+  <div class="wrap hero">
+    <h1>Pluginarium</h1>
+    <p class="lede">Your plugins as instruments in the studio. Pluginarium makes the Mac one
+    more instrument in a dawless setup: start it, load a configuration and play, without
+    opening a DAW.</p>
+    <div class="actions">
+      <a class="button" href="https://github.com/jiripisa/pluginarium/releases/download/v0.1.0/Pluginarium-0.1.0.dmg">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Download for macOS
+      </a>
+      <span class="meta">Version 0.1.0 for macOS 15 or later on Apple silicon. <a href="manual.html">Read the manual</a>.</span>
+    </div>
+    <figure class="shot">
+      <img src="assets/pluginarium-window.png" alt="The Pluginarium mixer with four instrument channels, their effects and their audio outputs" width="1400">
+    </figure>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>What it does</h2>
+      <div class="grid">
+        <div>
+          <h3>Load and play</h3>
+          <p>The app opens on your saved configurations. Pick one and its plugins load with
+          their sounds and routing. A configuration always opens: a missing plugin or device
+          shows on its own channel, and the other channels play.</p>
+        </div>
+        <div>
+          <h3>A stack of channels</h3>
+          <p>A configuration is a row of channels. Each one holds an instrument plugin or a
+          standalone effect, with its own MIDI input, audio output and effects. Effects run
+          in series, or up to three side by side in parallel.</p>
+        </div>
+        <div>
+          <h3>Routing that follows the plugin</h3>
+          <p>A channel shows only the inputs its plugin can use: MIDI in, Audio in, Sidechain
+          in. New channels take their routing from position tables you set once, so one
+          plugin on your usual outputs takes a few letters and Return.</p>
+        </div>
+        <div>
+          <h3>Part of the studio</h3>
+          <p>A standalone effect takes a hardware synth from an audio input and sends it to
+          an audio output. Plugins with an audio or sidechain input read the inputs of your
+          audio interface.</p>
+        </div>
+        <div>
+          <h3>Follows the MIDI clock</h3>
+          <p>Plugins get the tempo from the MIDI clock source you pick. A Follow Start/Stop
+          switch on each plugin decides whether its internal sequencer also starts and stops
+          with that clock.</p>
+        </div>
+        <div>
+          <h3>Named presets</h3>
+          <p>Save a plugin's sound under a name and use it in every configuration. Plugins
+          that list factory presets as Audio Units show them next to yours.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="needs">
+    <div class="wrap grid">
+      <div>
+        <h2>What it needs</h2>
+        <ul>
+          <li>macOS 15 or later, on Apple silicon.</li>
+          <li>Audio Units. VST and VST3 plugins are not hosted.</li>
+          <li>An audio device with outputs. With more outputs, each plugin can have its own
+          channels on your mixer.</li>
+        </ul>
+      </div>
+      <div>
+        <h2>What it leaves out</h2>
+        <p>Pluginarium is a host, not a DAW. It has no faders or panning, no recording,
+        sequencing or arranging, and no MIDI learn yet. Levels are set on your mixer and in the
+        plugins. The manual lists <a href="manual.html#limits">the limits of this version</a>.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="get">
+    <div class="wrap grid">
+      <div>
+        <h2>Download</h2>
+        <p>The disk image is signed and notarized by Apple, so it opens without
+        security warnings. Drag Pluginarium to Applications. Plugins are not included;
+        the app hosts the Audio Units already on your Mac.</p>
+        <div class="actions">
+          <a class="button" href="https://github.com/jiripisa/pluginarium/releases/download/v0.1.0/Pluginarium-0.1.0.dmg">Download version 0.1.0</a>
+        </div>
+        <p><a href="https://github.com/jiripisa/pluginarium/releases">Release notes and earlier versions</a></p>
+      </div>
+      <div>
+        <h2>Build from source</h2>
+        <p>You need the Xcode command line tools with Swift 6; no Xcode project is involved.</p>
+<pre><code>git clone https://github.com/jiripisa/pluginarium.git
+cd pluginarium
+./run.sh</code></pre>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Pluginarium by Jiří Píša. GPL-3.0.</span>
+    <span><a href="manual.html">Manual</a> · <a href="https://github.com/jiripisa/pluginarium">Source on GitHub</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

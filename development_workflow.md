@@ -28,16 +28,23 @@ pluginarium/
 ### 2.1 App-bundle assembly (all modes)
 
 Executable → `Contents/MacOS`, `Resources/Info.plist` → `Contents/`,
-`Resources/AppIcon.png` → `AppIcon.icns` (sips + iconutil), PkgInfo,
+`Resources/AppIcon.png` → `AppIcon.icns` (sips + iconutil), Sparkle.framework →
+`Contents/Frameworks` (XPC services removed; the app is unsandboxed), PkgInfo,
 then an ad-hoc signature with the entitlements. New resource files must be
 copied in `build.sh` explicitly.
 
 ### 2.2 Distribution (`dist`)
 
-1. Sign the app with the first "Developer ID
+1. Sign Sparkle's parts inside-out, then the app with the first "Developer ID
    Application" identity in the Keychain, hardened runtime, timestamp.
 2. Notarize the zipped app (`notarytool --keychain-profile notary --wait`), staple it.
 3. Build `build/Pluginarium.dmg` (app + Applications symlink), sign, notarize, staple.
+4. `scripts/make_appcast.py` signs the stapled DMG with Sparkle's `sign_update`
+   (EdDSA private key from the login Keychain) and writes `docs/appcast.xml`:
+   version, release notes from the CHANGELOG section, the GitHub Release
+   download URL, length and signature. Create the GitHub Release (DMG uploaded
+   as `Pluginarium-<version>.dmg`) **before** pushing the appcast, so the feed
+   never points at a missing file.
 
 A notarization `HTTP status code: 403. A required agreement is missing or has
 expired` is an account issue: accept the updated agreement at
@@ -51,6 +58,11 @@ developer.apple.com/account.
    xcrun notarytool store-credentials notary \
      --apple-id <apple-id-email> --team-id <TEAMID> --password <app-specific-password>
    ```
+3. The Sparkle EdDSA key: `.build/artifacts/sparkle/Sparkle/bin/generate_keys`
+   keeps the private key in the login Keychain and prints the public key that
+   lives in `Info.plist` (`SUPublicEDKey`). Back it up
+   (`generate_keys -x <file>`, kept offline): without it no update can ever be
+   signed for existing installs again.
 
 ### 2.4 Entitlements & sandbox policy
 

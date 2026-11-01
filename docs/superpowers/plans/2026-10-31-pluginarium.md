@@ -453,7 +453,7 @@ OSStatus pr_install_input_callbacks(AudioUnit, PREngine *);
 ```
 
 - [ ] **Step 2: Run them.** Expected: fail.
-- [ ] **Step 3: Implement.** Reuse hosted plugins by channel or effect ID so an edit never reloads what is playing. Load plugins concurrently and install the graph after each finishes, so slow plugins do not hold up fast ones. On first load, write the capabilities to `CapabilityCache`. Install host and input callbacks on every unit. `GraphBuilder` is a pure mapping from channels plus hosted plugins to `PRStrip` values, and owns the C arrays until the install call returns.
+- [ ] **Step 3: Implement.** Reuse hosted plugins by channel or effect ID so an edit never reloads what is playing. Load plugins one at a time on the main thread, in the order they asked, and install the graph after each finishes; instantiation is synchronous for some plugins, so a turn gives the main thread back to draw before the next. On first load, write the capabilities to `CapabilityCache`. Install host and input callbacks on every unit. `GraphBuilder` is a pure mapping from channels plus hosted plugins to `PRStrip` values, and owns the C arrays until the install call returns.
 - [ ] **Step 4: Run tests.** Expected: pass.
 - [ ] **Step 5: Commit** `feat: run configurations through the render core`.
 

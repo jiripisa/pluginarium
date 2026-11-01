@@ -1,0 +1,851 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pluginarium Manual</title>
+<meta name="description" content="The Pluginarium manual: every control, with marked screenshots.">
+<link rel="alternate" hreflang="en" href="https://jiripisa.github.io/pluginarium/manual.html">
+<link rel="alternate" hreflang="cs" href="https://jiripisa.github.io/pluginarium/cs/manual.html">
+<link rel="alternate" hreflang="x-default" href="https://jiripisa.github.io/pluginarium/manual.html">
+<link rel="icon" href="assets/icon.png">
+<link rel="stylesheet" href="assets/site.css">
+<link rel="stylesheet" href="assets/manual.css">
+</head>
+<body>
+
+<header class="wrap masthead">
+  <a class="brand" href="index.html"><img src="assets/icon.png" alt="" width="32" height="32">Pluginarium</a>
+  <nav aria-label="Site">
+    <a href="index.html">Overview</a>
+    <a href="manual.html" aria-current="page">Manual</a>
+    <a href="index.html#get">Download</a>
+    <a class="lang" href="cs/manual.html" hreflang="cs" lang="cs">Česky</a>
+  </nav>
+</header>
+
+<main>
+  <div class="wrap title">
+    <h1>Manual</h1>
+    <p>Every control of Pluginarium 0.1.0, where to find it and what it does.
+    The frames in the screenshots mark the control the text talks about.</p>
+  </div>
+
+  <div class="wrap layout">
+    <nav class="toc" aria-label="Contents">
+      <p>Contents</p>
+      <ol>
+        <li><a href="#start">Getting started</a></li>
+        <li><a href="#start-screen">Start screen</a></li>
+        <li><a href="#mixer">Mixer</a>
+          <ol>
+            <li><a href="#topbar">Top bar</a></li>
+          </ol>
+        </li>
+        <li><a href="#channel">A channel</a>
+          <ol>
+            <li><a href="#midi-in">MIDI in</a></li>
+            <li><a href="#audio-in">Audio in</a></li>
+            <li><a href="#sidechain-in">Sidechain in</a></li>
+            <li><a href="#audio-out">Audio out</a></li>
+            <li><a href="#open-plugin">Open plugin</a></li>
+            <li><a href="#follow">Follow Start/Stop</a></li>
+          </ol>
+        </li>
+        <li><a href="#presets">Presets</a></li>
+        <li><a href="#effects">Effects</a></li>
+        <li><a href="#add">Add dialog</a>
+          <ol>
+            <li><a href="#standalone">Standalone effects</a></li>
+          </ol>
+        </li>
+        <li><a href="#saving">Saving</a></li>
+        <li><a href="#settings">Settings</a>
+          <ol>
+            <li><a href="#device">Audio device</a></li>
+            <li><a href="#positions">Position tables</a></li>
+          </ol>
+        </li>
+        <li><a href="#clock">MIDI clock</a></li>
+        <li><a href="#keys">Keyboard</a></li>
+        <li><a href="#faults">Faults</a></li>
+        <li><a href="#microphone">Microphone permission</a></li>
+        <li><a href="#updates">Updates</a></li>
+        <li><a href="#limits">Limits of this version</a></li>
+      </ol>
+    </nav>
+
+    <article>
+
+      <section id="start">
+        <h2>Getting started</h2>
+        <p>Pluginarium hosts Audio Units so that a Mac can stand in a dawless studio as one
+        more instrument, without opening a DAW. It needs macOS 15 or later on Apple silicon.
+        It hosts Audio Units only, and the plugins are the ones already on your Mac.</p>
+        <ol>
+          <li>Download the disk image from the <a href="index.html#get">download page</a>
+          and open it.</li>
+          <li>Drag <b>Pluginarium</b> to <b>Applications</b> and start it from there. The
+          <a href="#start-screen">Start screen</a> opens.</li>
+          <li>Choose <span class="ui caps">New configuration</span>. If your audio device has
+          inputs, macOS asks once for the microphone; answer it. See
+          <a href="#microphone">Microphone permission</a>.</li>
+          <li>The <a href="#add">Add dialog</a> is open with the search field ready. Type a few
+          letters of a plugin's name and press <kbd>Return</kbd>. The plugin appears as channel 1
+          of the <a href="#mixer">mixer</a>.</li>
+          <li>On the channel, pick the MIDI device under <a href="#midi-in"><span class="ui caps">MIDI in</span></a>,
+          and check <a href="#audio-out"><span class="ui caps">Audio out</span></a>. On a device
+          with four or more outputs the first instrument starts on <span class="ui">Out 3–4</span>,
+          not on <span class="ui">Out 1–2</span>.</li>
+          <li>Press <kbd>⌘S</kbd> and give the configuration a name. Next time it is on the
+          Start screen.</li>
+        </ol>
+      </section>
+
+      <section id="start-screen">
+        <h2>Start screen</h2>
+        <p>The app always opens here, and no audio device is touched until you open a
+        configuration.</p>
+        <figure class="fig">
+          <div class="view" style="--iw:2560;--ih:1520;--zx:5;--zy:30;--zw:90;--zh:39">
+            <img src="assets/manual/start.png" alt="The Start screen: the Pluginarium wordmark and a Ready lamp on the left, three saved configurations and the New configuration and Settings buttons on the right.">
+            <span class="mark" style="--x:8.9;--y:56.8;--w:5.7;--h:3.5"><b>1</b></span>
+            <span class="mark" style="--x:53;--y:34;--w:37.7;--h:26.5"><b>2</b></span>
+            <span class="mark" style="--x:53;--y:62.4;--w:12.2;--h:3.6"><b>3</b></span>
+            <span class="mark" style="--x:65.9;--y:62.4;--w:6.7;--h:3.6"><b>4</b></span>
+          </div>
+        </figure>
+        <dl class="controls">
+          <dt><span class="n">1</span><span class="ui caps">Ready</span></dt>
+          <dd>The app is up.</dd>
+          <dt><span class="n">2</span>Saved configurations</dt>
+          <dd>One row per configuration, by name, with the plugin of each channel under the
+          name. Click a row to open it in the mixer. With nothing saved yet the list reads
+          <span class="ui">No configurations yet</span>. The list scrolls when it no longer
+          fits.</dd>
+          <dt><span class="n">3</span><span class="ui caps">New configuration</span></dt>
+          <dd>Opens an empty mixer and the <a href="#add">Add dialog</a> over it.</dd>
+          <dt><span class="n">4</span><span class="ui caps">Settings</span></dt>
+          <dd>Opens <a href="#settings">Settings</a>. <span class="ui caps">Done</span> brings
+          you back here.</dd>
+        </dl>
+      </section>
+
+      <section id="mixer">
+        <h2>Mixer</h2>
+        <p>The main screen. Channels stand side by side like the strips of a console, and the
+        signal runs from top to bottom. When there are more channels than the window shows,
+        the row scrolls sideways.</p>
+        <figure class="fig">
+          <div class="view" style="--iw:2560;--ih:1520">
+            <img src="assets/manual/mixer.png" alt="The mixer with the configuration Evening set: a top bar, four instrument channels with effects, and the column for adding a channel.">
+            <span class="mark" style="--x:2.5;--y:4.8;--w:95;--h:5.1"><b>1</b></span>
+            <span class="mark" style="--x:2.5;--y:10.6;--w:58.8;--h:88.8"><b>2</b></span>
+            <span class="mark" style="--x:61.4;--y:10.6;--w:8.1;--h:88.8"><b>3</b></span>
+          </div>
+          <figcaption>A configuration with four instruments.</figcaption>
+        </figure>
+        <dl class="controls">
+          <dt><span class="n">1</span><a href="#topbar">Top bar</a></dt>
+          <dd>The configuration and its save state, the MIDI clock, the CPU load and Settings.</dd>
+          <dt><span class="n">2</span><a href="#channel">Channels</a></dt>
+          <dd>One column per instrument or standalone effect, numbered in the order they were
+          added.</dd>
+          <dt><span class="n">3</span><span class="ui caps">Add instrument or effect</span></dt>
+          <dd>Opens the <a href="#add">Add dialog</a> for a new channel.</dd>
+        </dl>
+        <p>A configuration plays as soon as it is open. There is no play button: the plugins
+        make sound when they get MIDI or audio.</p>
+
+        <h3 id="topbar">Top bar</h3>
+        <figure class="fig">
+          <div class="view" style="--iw:2560;--ih:1520;--zx:2;--zy:3.8;--zw:32;--zh:6.4">
+            <img src="assets/manual/mixer.png" alt="The left end of the top bar: the configuration name with its menu arrow, and the word Saved.">
+            <span class="mark" style="--x:2.4;--y:4.6;--w:11;--h:4.2"><b>1</b></span>
+            <span class="mark" style="--x:14;--y:5.2;--w:3.2;--h:3.4"><b>2</b></span>
+          </div>
+        </figure>
+        <figure class="fig">
+          <div class="view" style="--iw:2558;--ih:160">
+            <img src="assets/manual/topbar-unsaved.png" alt="The top bar after a change: Unsaved changes and a Save button next to the configuration name.">
+          </div>
+          <figcaption>After a change.</figcaption>
+        </figure>
+        <figure class="fig">
+          <div class="view" style="--iw:2560;--ih:1520;--zx:76;--zy:3.8;--zw:23;--zh:6.4">
+            <img src="assets/manual/mixer.png" alt="The right end of the top bar: No MIDI clock with an unlit lamp, the CPU load and the Settings button.">
+            <span class="mark" style="--x:78.1;--y:5.3;--w:7.4;--h:3.4"><b>3</b></span>
+            <span class="mark" style="--x:86;--y:5.3;--w:4.1;--h:3.4"><b>4</b></span>
+            <span class="mark" style="--x:90.9;--y:5.2;--w:6.7;--h:3.6"><b>5</b></span>
+          </div>
+        </figure>
+        <dl class="controls">
+          <dt><span class="n">1</span>Configuration name <span class="ui">▾</span></dt>
+          <dd>Opens the configuration menu, below. A configuration without a name yet reads
+          <span class="ui caps">New configuration</span>.</dd>
+          <dt><span class="n">2</span>Save state</dt>
+          <dd><span class="ui">Saved</span> or <span class="ui">Unsaved changes</span>, with a
+          <span class="ui caps">Save</span> button when there is something to save. See
+          <a href="#saving">Saving</a>. A configuration that was never saved and has no
+          channels shows nothing here.</dd>
+          <dt><span class="n">3</span>MIDI clock</dt>
+          <dd><span class="ui">No MIDI clock</span> with an unlit lamp, or the source and its
+          tempo, such as <span class="ui">Hapax clock, 120.0 BPM</span>, with the lamp blinking
+          on the beat. See <a href="#clock">MIDI clock</a>.</dd>
+          <dt><span class="n">4</span>CPU load</dt>
+          <dd>How much of the audio time the app uses, such as <span class="ui">CPU 17 %</span>.</dd>
+          <dt><span class="n">5</span><span class="ui caps">Settings</span></dt>
+          <dd>Opens <a href="#settings">Settings</a>. <span class="ui caps">Done</span> brings
+          you back to the mixer, and the configuration plays on meanwhile.</dd>
+        </dl>
+        <p>Audio messages appear in the same bar, left of the MIDI clock:
+        <span class="ui">Audio device missing</span>, <span class="ui">Audio could not start</span>,
+        <span class="ui">Waiting for microphone access</span> and
+        <span class="ui">Microphone access denied, inputs are silent</span>. See
+        <a href="#faults">Faults</a>.</p>
+
+        <h4>Configuration menu</h4>
+        <figure class="fig small">
+          <img src="assets/manual/menu-configuration.png" alt="The configuration menu: Load configuration with three names, the current one in amber, then New configuration and Save as.">
+        </figure>
+        <dl class="controls">
+          <dt><span class="ui">Load configuration</span></dt>
+          <dd>Your configurations by name, the current one in amber. Choosing one replaces what
+          plays. Unsaved changes are <a href="#saving">asked about</a> first.</dd>
+          <dt><span class="ui">New configuration</span></dt>
+          <dd>Starts an empty configuration and opens the <a href="#add">Add dialog</a>.</dd>
+          <dt><span class="ui">Save as</span></dt>
+          <dd>Saves a copy under a new name, which starts as the old name plus
+          <span class="ui">copy</span>. From then on you work in the copy, and the original
+          stays as it was saved.</dd>
+        </dl>
+      </section>
+
+      <section id="channel">
+        <h2>A channel</h2>
+        <p>A channel holds one instrument plugin or one standalone effect. It shows only what
+        its plugin can use, so a normal synth has no audio input fields. A standalone effect's
+        channel has a slightly different panel colour.</p>
+        <div class="side">
+          <figure class="fig">
+            <div class="view" style="--iw:2560;--ih:1520;--zx:2.5;--zy:10.6;--zw:14.7;--zh:88.8">
+              <img src="assets/manual/mixer.png" alt="One channel from top to bottom: number and remove button, MIDI in, plugin name, preset selector, Open plugin, Follow Start/Stop, effects, level meter and Audio out.">
+              <span class="mark" style="--x:2.8;--y:11.9;--w:14;--h:2.9"><b>1</b></span>
+              <span class="mark" style="--x:2.8;--y:16;--w:14;--h:6.1"><b>2</b></span>
+              <span class="mark" style="--x:2.8;--y:22.7;--w:14;--h:3.8"><b>3</b></span>
+              <span class="mark" style="--x:2.8;--y:27.7;--w:14;--h:3"><b>4</b></span>
+              <span class="mark" style="--x:2.8;--y:31.4;--w:14;--h:3.4"><b>5</b></span>
+              <span class="mark" style="--x:2.8;--y:35;--w:14;--h:3.3"><b>6</b></span>
+              <span class="mark" style="--x:2.8;--y:39.6;--w:14;--h:9.8"><b>7</b></span>
+              <span class="mark" style="--x:2.8;--y:89.2;--w:14;--h:2.4"><b>8</b></span>
+              <span class="mark" style="--x:2.8;--y:92.7;--w:14;--h:5.9"><b>9</b></span>
+            </div>
+          </figure>
+          <dl class="controls">
+            <dt><span class="n">1</span>Number and <span class="ui">×</span></dt>
+            <dd>The channel's place in the stack, and the button that removes it. The app asks
+            <span class="ui caps">Remove channel?</span> first.</dd>
+            <dt><span class="n">2</span><a href="#midi-in"><span class="ui caps">MIDI in</span></a></dt>
+            <dd>Where the plugin's notes come from. <a href="#audio-in"><span class="ui caps">Audio in</span></a>
+            and <a href="#sidechain-in"><span class="ui caps">Sidechain in</span></a> appear here
+            too, for a plugin that has them.</dd>
+            <dt><span class="n">3</span>Plugin name</dt>
+            <dd>A long name shrinks to fit and is then cut off. The tooltip shows all of it.</dd>
+            <dt><span class="n">4</span>Preset selector</dt>
+            <dd>The current sound. Click for the <a href="#presets">preset menu</a>.</dd>
+            <dt><span class="n">5</span><a href="#open-plugin"><span class="ui caps">Open plugin</span></a></dt>
+            <dd>Opens the plugin's own window.</dd>
+            <dt><span class="n">6</span><a href="#follow"><span class="ui caps">Follow Start/Stop</span></a></dt>
+            <dd>Whether the plugin starts and stops with the MIDI clock.</dd>
+            <dt><span class="n">7</span><a href="#effects"><span class="ui caps">Effects</span></a></dt>
+            <dd>The effects behind the plugin. This part scrolls in a low window.</dd>
+            <dt><span class="n">8</span>Level meter</dt>
+            <dd>Two bars for left and right, spanning 60 dB, showing what leaves the channel.</dd>
+            <dt><span class="n">9</span><a href="#audio-out"><span class="ui caps">Audio out</span></a></dt>
+            <dd>The output channels of the audio device.</dd>
+          </dl>
+        </div>
+
+        <h3 id="midi-in">MIDI in</h3>
+        <p>Shown for plugins that take MIDI. The left selector lists <span class="ui">No MIDI</span>
+        and the MIDI sources macOS reports, under their system names, virtual ports included.
+        The right one picks a MIDI channel: <span class="ui">All</span> or 1 to 16. It is dimmed
+        while the device is <span class="ui">No MIDI</span>.</p>
+        <p>A source that is gone stays listed as <span class="ui">Hapax (not connected)</span>,
+        and the channel shows <span class="ui">Hapax is not connected</span> in red. A device
+        behind a MIDI router can stay listed while it is switched off, because macOS still
+        reports the router's port.</p>
+
+        <h3 id="audio-in">Audio in</h3>
+        <p>Shown for a plugin with a main audio input, such as a vocoder, and always for a
+        standalone effect. It lists each input of the audio device as a mono channel, such as
+        <span class="ui">In 1</span>, then the stereo pairs, such as <span class="ui">In 1–2</span>.</p>
+        <p>On an instrument it starts at <span class="ui">Off</span>, so a synth with an input
+        never gets signal by accident, and a vocoder stays without its microphone until you
+        pick one. A standalone effect has no <span class="ui">Off</span>, because it has no
+        other source. A plugin that takes its modulator through a sidechain shows
+        <span class="ui caps">Sidechain in</span> instead.</p>
+
+        <h3 id="sidechain-in">Sidechain in</h3>
+        <p>Shown for a plugin with a sidechain input. It lists the same inputs as
+        <span class="ui caps">Audio in</span>, with <span class="ui">Off</span> first. The source
+        is always an input of the audio device, not another channel. An effect in the chain
+        sets its sidechain in its <a href="#effect-menu">slot menu</a>.</p>
+
+        <h3 id="audio-out">Audio out</h3>
+        <p>Lists the stereo pairs of the audio device, such as <span class="ui">Out 3–4</span>,
+        then each mono channel, such as <span class="ui">Out 3</span>. Several channels can share
+        an output; they add up. A route the device does not have stays listed, and the channel
+        says so in red: <span class="ui">Out 5–6 is not available on this device</span>.</p>
+
+        <h3 id="open-plugin">Open plugin</h3>
+        <p><span class="ui caps">Open plugin</span> opens the plugin's own window above the mixer,
+        and its lamp lights. The button then reads <span class="ui caps">Close plugin</span>; the
+        window's red button does the same. Each plugin has at most one window, sized as the
+        plugin asks.</p>
+        <figure class="fig medium">
+          <img src="assets/manual/plugin-window.png" alt="The window of Apple's AUDelay, opened from Pluginarium.">
+          <figcaption>Apple's AUDelay in its own window.</figcaption>
+        </figure>
+        <p>Plugin windows step aside for dialogs and Settings and come back where they were. A
+        plugin that shows no view gets a small window that reads
+        <span class="ui">This plugin has no window</span>. An effect opens its window from its
+        <a href="#effect-menu">slot menu</a>.</p>
+
+        <h3 id="follow">Follow Start/Stop</h3>
+        <p>The switch decides what the plugin sees of the MIDI clock's transport. Hold the
+        pointer over it for a tooltip. Tempo reaches every plugin either way.</p>
+        <dl class="controls">
+          <dt>Lamp lit, on</dt>
+          <dd>The plugin sees tempo and transport, so an arpeggiator or internal sequencer runs
+          with your sequencer.</dd>
+          <dt>Lamp dark, off</dt>
+          <dd>The plugin sees the tempo only, and to it the transport is always stopped. A delay
+          keeps its tempo, and an internal sequencer stays still.</dd>
+        </dl>
+        <p>It starts off on instruments, so a sequencer never starts a part you did not ask for,
+        and on for effects, both standalone and in a chain. The switch is saved in the
+        configuration. Notes and controllers follow <span class="ui caps">MIDI in</span>
+        whatever the switch says.</p>
+      </section>
+
+      <section id="presets">
+        <h2>Presets</h2>
+        <p>A preset is a named snapshot of a plugin's sound. It belongs to the plugin, so it is
+        there in every configuration that uses that plugin. The preset selector of a channel
+        shows the current sound:</p>
+        <dl class="controls">
+          <dt><span class="ui">Default sound</span></dt>
+          <dd>The plugin as it loads, untouched. It can only be chosen when adding a plugin.</dd>
+          <dt>A name</dt>
+          <dd>One of your presets, or a factory preset.</dd>
+          <dt><span class="ui">Custom sound</span></dt>
+          <dd>You changed the sound in the plugin's window, with no preset picked.</dd>
+          <dt>A name with <span class="ui">(changed)</span></dt>
+          <dd>You changed the sound after picking one of your presets. Factory presets never
+          get this mark.</dd>
+        </dl>
+        <p>Plugins do not report that their sound changed. Pluginarium compares the plugin's
+        state when its window opens and when it closes, so a change shows when you close the
+        window or save.</p>
+        <figure class="fig small">
+          <img src="assets/manual/menu-preset.png" alt="The preset menu of AUMatrixReverb: My presets and Factory presets with a list of Apple's rooms and halls.">
+          <figcaption>A plugin that lists its factory presets.</figcaption>
+        </figure>
+        <figure class="fig small">
+          <img src="assets/manual/menu-preset-empty.png" alt="The preset menu of TB-303: My presets with one preset, a hint about factory sounds, and Save as preset.">
+          <figcaption>A plugin that does not.</figcaption>
+        </figure>
+        <dl class="controls">
+          <dt><span class="ui">My presets</span></dt>
+          <dd>The presets you saved for this plugin, or <span class="ui">None saved yet</span>.
+          The current one is in amber.</dd>
+          <dt><span class="ui">Factory presets</span></dt>
+          <dd>The sounds the plugin lists as an Audio Unit.</dd>
+          <dt><span class="ui">Save as preset</span></dt>
+          <dd>Asks for a name and stores the sound the plugin has now. The same name for the same
+          plugin replaces the old preset. The field starts from the name the sound has.</dd>
+        </dl>
+        <h3>Why some plugins show no factory list</h3>
+        <p>A plugin decides whether its factory sounds are visible to a host. Mariana lists
+        them; TB-303 and JUPITER-8 keep them inside their own window. For such a plugin the menu
+        says <span class="ui">This plugin keeps its factory sounds in its own window. Open it,
+        choose a sound and save it here.</span> Do that once, and the sound is one of your
+        presets from then on.</p>
+        <h3>What happens to a saved preset</h3>
+        <p>A preset is stored for good the moment you save it, even if you then choose
+        <span class="ui caps">Don't save</span> for the configuration. What waits for the
+        configuration is only the fact that it uses that preset. See <a href="#saving">Saving</a>.
+        A configuration holds each plugin's full state, so changing a preset later does not
+        change a configuration saved earlier.</p>
+      </section>
+
+      <section id="effects">
+        <h2>Effects</h2>
+        <p>Effects in the chain of a channel process that channel's plugin. They get their signal
+        from the chain, so the only input they can have is a sidechain.</p>
+        <figure class="fig">
+          <div class="view" style="--iw:2560;--ih:1520;--zx:16.5;--zy:39;--zw:30;--zh:16">
+            <img src="assets/manual/mixer.png" alt="Two effect chains: AUDelay and AUMatrixReverb side by side and joined by lines, and the same two effects one under the other.">
+            <span class="mark" style="--x:17.9;--y:42.4;--w:13.2;--h:5.1"><b>1</b></span>
+            <span class="mark" style="--x:32.7;--y:42.4;--w:13;--h:7"><b>2</b></span>
+            <span class="mark" style="--x:32.7;--y:49.8;--w:13;--h:3.3"><b>3</b></span>
+          </div>
+        </figure>
+        <dl class="controls">
+          <dt><span class="n">1</span>Parallel</dt>
+          <dd>Effects side by side in a row run in parallel, joined by split and merge lines. Up
+          to three share a row. The branches are added at equal level; set the balance with each
+          plugin's own wet and dry controls.</dd>
+          <dt><span class="n">2</span>Series</dt>
+          <dd>Rows run from top to bottom, each one feeding the next.</dd>
+          <dt><span class="n">3</span><span class="ui">Add effect</span></dt>
+          <dd>Opens the <a href="#add">Add dialog</a> and puts the effect in a new row at the end
+          of the chain.</dd>
+        </dl>
+        <h3 id="effect-menu">Slot menu</h3>
+        <p>Click an effect for its menu. An effect that failed to load shows its name in red,
+        with the reason in the tooltip; the channel's plugin plays on.</p>
+        <figure class="fig small">
+          <img src="assets/manual/menu-effect.png" alt="The slot menu of an effect: Open plugin, Presets, Follow Start/Stop, Add parallel effect, Move to series and Remove.">
+        </figure>
+        <dl class="controls">
+          <dt><span class="ui">Open plugin</span> / <span class="ui">Close plugin</span></dt>
+          <dd>The effect's own window.</dd>
+          <dt><span class="ui">Presets: Default sound</span></dt>
+          <dd>Names the current sound and opens the <a href="#presets">preset menu</a>.</dd>
+          <dt><span class="ui">Sidechain in: Off</span></dt>
+          <dd>Only for a plugin with a sidechain. Pick an input of the audio device. The row then
+          reads, for example, <span class="ui">Sidechain from In 1</span>.</dd>
+          <dt><span class="ui">Follow Start/Stop: On</span></dt>
+          <dd>Switches <a href="#follow">Follow Start/Stop</a> for this effect.</dd>
+          <dt><span class="ui">Add parallel effect</span></dt>
+          <dd>Opens the Add dialog and puts the effect next to this one. Not offered once three
+          share the row.</dd>
+          <dt><span class="ui">Move to series</span></dt>
+          <dd>Only in a parallel row. Moves the effect to a new row right below.</dd>
+          <dt><span class="ui">Remove</span></dt>
+          <dd>Removes the effect at once, without asking.</dd>
+        </dl>
+      </section>
+
+      <section id="add">
+        <h2>Add dialog</h2>
+        <p>The same dialog adds a channel, adds an effect and replaces a missing plugin. A new
+        configuration opens it right away, with the search field ready, so a few letters and
+        <kbd>Return</kbd> are enough.</p>
+        <figure class="fig">
+          <div class="view" style="--iw:1280;--ih:1022">
+            <img src="assets/manual/add-instrument.png" alt="The Add to stack dialog: Instrument and Standalone effect tabs, the search field, the plugin list, the Sound column, the routing fields, and Cancel and Add.">
+            <span class="mark" style="--x:1.4;--y:10.8;--w:38.4;--h:5.3"><b>1</b></span>
+            <span class="mark" style="--x:2.6;--y:17.5;--w:94.8;--h:5.4"><b>2</b></span>
+            <span class="mark" style="--x:1.4;--y:24.6;--w:47.8;--h:51.2"><b>3</b></span>
+            <span class="mark" style="--x:49.8;--y:24.6;--w:47.6;--h:51.2"><b>4</b></span>
+            <span class="mark" style="--x:1.4;--y:79.6;--w:96;--h:9.1"><b>5</b></span>
+            <span class="mark" style="--x:76.4;--y:91;--w:21;--h:6"><b>6</b></span>
+          </div>
+        </figure>
+        <dl class="controls">
+          <dt><span class="n">1</span><span class="ui caps">Instrument</span> and <span class="ui caps">Standalone effect</span></dt>
+          <dd>Only when adding a channel. Instruments are Audio Units of type
+          <code>aumu</code> and <code>aumf</code>, effects are <code>aufx</code>.</dd>
+          <dt><span class="n">2</span><span class="ui">Search plugins</span></dt>
+          <dd>Filters by plugin name and vendor as you type. With nothing left it reads
+          <span class="ui">No plugin matches this search.</span></dd>
+          <dt><span class="n">3</span>Plugin list</dt>
+          <dd><span class="ui caps">Recent</span> holds the last five plugins you added, then come
+          <span class="ui caps">All</span> the others. Without recent plugins the list is headed
+          <span class="ui caps">Instruments</span> or <span class="ui caps">Effects</span>.</dd>
+          <dt><span class="n">4</span><span class="ui caps">Sound</span></dt>
+          <dd><span class="ui">Default sound</span>, then <span class="ui caps">My presets</span> and
+          <span class="ui caps">Factory presets</span> of the selected plugin. A plugin without a
+          factory list shows <span class="ui">Factory sounds stay inside this plugin. Choose one in
+          its window and save it as a preset.</span></dd>
+          <dt><span class="n">5</span>Routing</dt>
+          <dd>The fields the plugin has: <span class="ui caps">MIDI device</span>,
+          <span class="ui caps">Channel</span>, <span class="ui caps">Audio in</span>,
+          <span class="ui caps">Sidechain in</span> and <span class="ui caps">Audio out</span>.
+          They start from the <a href="#positions">position tables</a>, and you can change them
+          here or later on the channel. Only when adding a channel.</dd>
+          <dt><span class="n">6</span><span class="ui caps">Cancel</span> and <span class="ui caps">Add</span></dt>
+          <dd>The second button reads <span class="ui caps">Replace</span> when replacing a plugin.</dd>
+        </dl>
+        <p>The first time you select a plugin, the app loads it once to learn its inputs and
+        presets, and remembers the answer. That can stop the screen for a moment. Audio on the
+        other channels keeps running.</p>
+        <h3>Keys in the dialog</h3>
+        <dl class="controls">
+          <dt>Letters</dt>
+          <dd>Search.</dd>
+          <dt><kbd>↓</kbd> <kbd>↑</kbd></dt>
+          <dd>Move the selection through the list, wrapping at the ends.</dd>
+          <dt><kbd>Return</kbd></dt>
+          <dd>Adds the selected plugin.</dd>
+          <dt><kbd>Esc</kbd></dt>
+          <dd>Cancels.</dd>
+        </dl>
+        <h3>The three uses</h3>
+        <dl class="controls">
+          <dt><span class="ui caps">Add to stack</span></dt>
+          <dd>A new channel, from <span class="ui caps">Add instrument or effect</span> or a new
+          configuration.</dd>
+          <dt><span class="ui caps">Add effect to TB-303</span></dt>
+          <dd>An effect in a chain, from <span class="ui">Add effect</span> or
+          <span class="ui">Add parallel effect</span>. No tabs and no routing.</dd>
+          <dt><span class="ui caps">Replace plugin</span></dt>
+          <dd>A new plugin for a channel whose plugin is missing. The channel keeps its routing and
+          effects. It keeps its audio in if the new plugin has one, and its sidechain in likewise.</dd>
+        </dl>
+        <figure class="fig">
+          <div class="view" style="--iw:1280;--ih:822">
+            <img src="assets/manual/add-effect.png" alt="The Add effect to TB-303 dialog with AUMatrixReverb selected and its factory presets in the Sound column.">
+          </div>
+          <figcaption>Adding an effect to a chain: no tabs, no routing.</figcaption>
+        </figure>
+
+        <h3 id="standalone">Standalone effects</h3>
+        <p>A standalone effect is a channel of its own. It takes signal from an input of the audio
+        device and sends it to an output, so any hardware instrument wired to your interface can
+        reach it. Add one from the <span class="ui caps">Standalone effect</span> tab. It has no
+        plugin in front of it, and it can have effects of its own.</p>
+        <figure class="fig">
+          <div class="view" style="--iw:1280;--ih:1022">
+            <img src="assets/manual/add-standalone.png" alt="The Add dialog on the Standalone effect tab, with Audio in and Audio out in the routing fields.">
+          </div>
+        </figure>
+        <div class="note"><p>A standalone effect passes its input to its output as soon as it is
+        added. If that output reaches the input again, for example through a microphone near your
+        monitors, it can feed back. Keep the monitors low until the routing is right.</p></div>
+      </section>
+
+      <section id="saving">
+        <h2>Saving</h2>
+        <p>A configuration holds its channels, routing, effects and the full state of every plugin.
+        Any change to it marks it <span class="ui">Unsaved changes</span>, and
+        <span class="ui caps">Save</span> or <kbd>⌘S</kbd> saves it. <span class="ui">Save</span> and
+        <span class="ui">Save as</span> are also in the <b>File</b> menu. Changes in
+        <a href="#settings">Settings</a> are not part of a configuration and are stored at once.</p>
+        <p>While a plugin window is open, the top bar shows <span class="ui caps">Save</span> even
+        next to <span class="ui">Saved</span>, because that window may hold a change the app has
+        not heard of. Saving then looks at the open windows first, and does nothing if no sound
+        changed.</p>
+        <p>After a save a line at the bottom of the window says so, such as
+        <span class="ui">Evening set saved</span>.</p>
+        <h3>The questions</h3>
+        <figure class="fig medium">
+          <img src="assets/manual/dialog-save-changes.png" alt="The Save changes? dialog with Don't save, Cancel and Save.">
+        </figure>
+        <dl class="controls">
+          <dt><span class="ui caps">Save changes?</span></dt>
+          <dd>Comes when you load another configuration, start a new one or quit with unsaved
+          changes. <span class="ui caps">Save</span> saves and goes on,
+          <span class="ui caps">Don't save</span> goes on and drops the changes,
+          <span class="ui caps">Cancel</span> stays where you are. <kbd>Return</kbd> answers Save
+          and <kbd>Esc</kbd> answers Cancel.</dd>
+          <dt><span class="ui caps">Save configuration</span></dt>
+          <dd>Comes the first time a new configuration is saved, and asks for its name. A name with
+          nothing in it cannot be confirmed.</dd>
+          <dt><span class="ui caps">Save as</span></dt>
+          <dd>Asks for the name of the copy.</dd>
+        </dl>
+        <figure class="fig medium">
+          <img src="assets/manual/dialog-save-preset.png" alt="The Save preset dialog with a name field, Cancel and Save preset.">
+        </figure>
+        <figure class="fig medium">
+          <img src="assets/manual/dialog-update-configuration.png" alt="The Update configuration? dialog with Not now and Save configuration.">
+        </figure>
+        <dl class="controls">
+          <dt><span class="ui caps">Save preset</span></dt>
+          <dd>Asks for the preset's name.</dd>
+          <dt><span class="ui caps">Update configuration?</span></dt>
+          <dd>Comes after saving a preset in a configuration that is already saved.
+          <span class="ui caps">Save configuration</span> saves the configuration too;
+          <span class="ui caps">Not now</span> leaves it unsaved. The preset is stored either way.</dd>
+          <dt><span class="ui caps">Remove channel?</span></dt>
+          <dd>Comes from the <span class="ui">×</span> on a channel.
+          <span class="ui caps">Remove</span> takes the channel and its effects out of the
+          configuration, and that counts as a change like any other.</dd>
+        </dl>
+        <p>In a configuration that was never saved, no question comes after saving a preset. A line
+        says <span class="ui">Acid bass saved. It joins this configuration when you save it.</span></p>
+        <p>A sound the app cannot read from a plugin keeps its last saved state, and the line says
+        so: <span class="ui">TB-303 could not be read, its last saved sound was kept</span>.</p>
+      </section>
+
+      <section id="settings">
+        <h2>Settings</h2>
+        <p>Open it from the Start screen, from the top bar, or with <kbd>⌘,</kbd>.
+        <span class="ui caps">Done</span> goes back. Settings belong to the app, not to a
+        configuration, and every change is stored at once.</p>
+        <figure class="fig">
+          <div class="view" style="--iw:2560;--ih:1520">
+            <img src="assets/manual/settings.png" alt="Settings: the Audio section with System default and read-only sample rate and buffer size, the MIDI clock section, and the Instrument positions table.">
+            <span class="mark" style="--x:1.9;--y:20.4;--w:19.8;--h:5.9"><b>1</b></span>
+            <span class="mark" style="--x:22.6;--y:20.4;--w:19.2;--h:5.9"><b>2</b></span>
+            <span class="mark" style="--x:42.7;--y:20.4;--w:19.2;--h:5.9"><b>3</b></span>
+            <span class="mark" style="--x:1.9;--y:26.9;--w:21.6;--h:2.4"><b>4</b></span>
+            <span class="mark" style="--x:1.9;--y:39.9;--w:60;--h:5.8"><b>5</b></span>
+            <span class="mark" style="--x:1.9;--y:48.6;--w:60;--h:42.1"><b>6</b></span>
+          </div>
+        </figure>
+        <dl class="controls">
+          <dt><span class="n">1</span><span class="ui caps">Device</span></dt>
+          <dd>The audio device plugins play and listen through: <span class="ui">System default</span>
+          or a device from the list.</dd>
+          <dt><span class="n">2</span><span class="ui caps">Sample rate</span></dt>
+          <dd>With a picked device: <span class="ui">44.1 kHz</span>, <span class="ui">48 kHz</span>
+          or <span class="ui">96 kHz</span>.</dd>
+          <dt><span class="n">3</span><span class="ui caps">Buffer size</span></dt>
+          <dd>With a picked device: <span class="ui">64 samples</span>,
+          <span class="ui">128 samples</span>, <span class="ui">256 samples</span> or
+          <span class="ui">512 samples</span>.</dd>
+          <dt><span class="n">4</span><span class="ui">Set by the system. Pick a device to change these.</span></dt>
+          <dd>Shown with System default, when the two fields above only report what runs.</dd>
+          <dt><span class="n">5</span><span class="ui caps">Clock source</span></dt>
+          <dd><span class="ui">None</span> or a MIDI source. See <a href="#clock">MIDI clock</a>.</dd>
+          <dt><span class="n">6</span><span class="ui caps">Instrument positions</span></dt>
+          <dd>See <a href="#positions">Position tables</a>. <span class="ui caps">Effect positions</span>
+          follow further down.</dd>
+        </dl>
+
+        <h3 id="device">Audio device: System default or a picked device</h3>
+        <dl class="controls">
+          <dt><span class="ui">System default</span></dt>
+          <dd>The app follows the default output of macOS and <b>writes nothing to the device</b>. It
+          runs at the sample rate and buffer size the device already has, and the two fields show
+          those values, dimmed. They cannot be changed here.</dd>
+          <dt>A picked device</dt>
+          <dd>The app <b>writes the sample rate and buffer size to that device</b> when audio starts
+          and each time you change them. The stored defaults are 48 kHz and 128 samples, so picking
+          a device can change the settings it had, for other apps too.</dd>
+        </dl>
+        <p>A new device or sample rate restarts audio and reloads the plugins; a new buffer size
+        restarts the device under the same plugins. A picked device that is gone stays listed as
+        <span class="ui">(not connected)</span>. The list follows what macOS reports while Settings
+        is on screen.</p>
+
+        <h3 id="positions">Position tables</h3>
+        <p>A new channel takes its routing from its position in the stack: the first instrument
+        takes row 1 of <span class="ui caps">Instrument positions</span>, the second takes row 2,
+        and so on. Standalone effects count separately in
+        <span class="ui caps">Effect positions</span>. Set the tables once for your studio, and
+        change any channel afterwards if you need to. Changing a table does not change existing
+        channels.</p>
+        <figure class="fig">
+          <div class="view" style="--iw:1588;--ih:1060">
+            <img src="assets/manual/settings-positions.png" alt="Settings scrolled down: the Instrument positions table with seven rows and the Effect positions table with three.">
+          </div>
+        </figure>
+        <dl class="controls">
+          <dt><span class="ui caps">Instrument positions</span></dt>
+          <dd>Seven rows, each with <span class="ui caps">MIDI device</span>,
+          <span class="ui caps">Channel</span> and <span class="ui caps">Audio out</span>. They start
+          on <span class="ui">No MIDI</span> and <span class="ui">Out 3–4</span>, then
+          <span class="ui">Out 5–6</span>, up to <span class="ui">Out 15–16</span>.</dd>
+          <dt><span class="ui caps">Effect positions</span></dt>
+          <dd>Three rows, each with <span class="ui caps">Audio in</span> and
+          <span class="ui caps">Audio out</span>. They start on <span class="ui">In 9–10</span> to
+          <span class="ui">Out 11–12</span>, then one pair higher each row.</dd>
+        </dl>
+        <p>Beyond the last row, new channels reuse it. If the device does not have a position's
+        channels, the new channel takes the first stereo pair no channel uses, or else the first
+        pair of the device, so it plays at once instead of staying silent.</p>
+      </section>
+
+      <section id="clock">
+        <h2>MIDI clock</h2>
+        <p>Pick the source in Settings under <span class="ui caps">Clock source</span>. Plugins with
+        tempo sync then follow it, with no setup on the channels.</p>
+        <p>Plugins never receive MIDI clock messages. The app reads the clock and gives each plugin
+        the tempo, the position and whether the transport plays. Start, Stop and Continue from the
+        source drive that transport, and <a href="#follow">Follow Start/Stop</a> decides who sees it.</p>
+        <dl class="controls">
+          <dt><span class="ui">Hapax clock, 120.0 BPM</span></dt>
+          <dd>Clock is arriving. The lamp blinks on the beat.</dd>
+          <dt><span class="ui">No MIDI clock</span></dt>
+          <dd>No source is picked, or no clock has arrived for a second. It does not matter
+          whether the source is still connected. Plugins keep the last tempo, or 120 BPM if there
+          has been none. If the source goes silent while playing, the transport stops.</dd>
+        </dl>
+      </section>
+
+      <section id="keys">
+        <h2>Keyboard</h2>
+        <dl class="controls">
+          <dt><kbd>⌘S</kbd></dt>
+          <dd><span class="ui">Save</span>, in the <b>File</b> menu.</dd>
+          <dt><kbd>⇧⌘S</kbd></dt>
+          <dd><span class="ui">Save as</span>, in the <b>File</b> menu.</dd>
+          <dt><kbd>⌘,</kbd></dt>
+          <dd><span class="ui">Settings…</span>, in the <b>Pluginarium</b> menu.</dd>
+          <dt><kbd>Return</kbd> and <kbd>Esc</kbd> in a dialog</dt>
+          <dd>Return answers the filled button, Esc cancels.</dd>
+          <dt>In an open menu</dt>
+          <dd><kbd>↓</kbd> <kbd>↑</kbd> move, <kbd>Return</kbd> or <kbd>Space</kbd> chooses,
+          <kbd>Esc</kbd> closes. A click anywhere else on the mixer also closes it.</dd>
+        </dl>
+        <p><span class="ui">New configuration</span> is in the <b>File</b> menu, without a shortcut.
+        These commands are off while a dialog or Settings is on screen. The keys of the Add dialog
+        are <a href="#add">listed with it</a>.</p>
+      </section>
+
+      <section id="faults">
+        <h2>Faults</h2>
+        <p>A configuration always opens. What is missing shows where it belongs, and the rest plays.</p>
+        <figure class="fig">
+          <div class="view" style="--iw:2560;--ih:1520">
+            <img src="assets/manual/faults.png" alt="A mixer with three faults: a MIDI device that is not connected, a plugin that is not installed with a Replace plugin button, and an output the device does not have.">
+            <span class="mark" style="--x:2.8;--y:22.1;--w:14;--h:2.4"><b>1</b></span>
+            <span class="mark" style="--x:17.8;--y:20.2;--w:13.4;--h:10.9"><b>2</b></span>
+            <span class="mark" style="--x:32.4;--y:83.9;--w:12.4;--h:4.5"><b>3</b></span>
+          </div>
+          <figcaption>A configuration moved to a Mac with other gear.</figcaption>
+        </figure>
+        <table class="faults">
+          <thead><tr><th>What you see</th><th>What it means</th><th>What to do</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="n">1</span><span class="ui">Hapax is not connected</span></td>
+              <td>macOS no longer lists this MIDI source.</td>
+              <td>Connect it, or pick another source under <span class="ui caps">MIDI in</span>. The
+              route comes back by itself when the source returns.</td>
+            </tr>
+            <tr>
+              <td><span class="n">2</span><span class="ui">Plugin not installed on this Mac</span></td>
+              <td>The plugin is not on this Mac.</td>
+              <td>Press <span class="ui caps">Replace plugin</span> and pick another, or install it
+              and open the configuration again. The channel's saved sound stays until you replace it.</td>
+            </tr>
+            <tr>
+              <td><span class="n">3</span><span class="ui">Out 5–6 is not available on this device</span></td>
+              <td>The audio device lacks this output, or an input in the same way.</td>
+              <td>Pick another route on the channel, or use the device that has it.</td>
+            </tr>
+            <tr>
+              <td><span class="ui">Plugin failed to load</span></td>
+              <td>The plugin is there but would not start. The tooltip gives the reason.</td>
+              <td>Open the configuration again, or check the plugin in another host.</td>
+            </tr>
+            <tr>
+              <td>An effect's name in red</td>
+              <td>That effect did not load or is not installed. The tooltip says which.</td>
+              <td>Remove it in its <a href="#effect-menu">slot menu</a> or install it. The channel's
+              plugin plays on.</td>
+            </tr>
+            <tr>
+              <td><span class="ui">Loading</span></td>
+              <td>The plugin is still starting. Some take a few seconds.</td>
+              <td>Wait.</td>
+            </tr>
+            <tr>
+              <td><span class="ui">Audio device missing</span></td>
+              <td>The device is gone. The configuration stays open.</td>
+              <td>Connect it. The configuration plays again when the device returns. Or pick another
+              device in Settings.</td>
+            </tr>
+            <tr>
+              <td><span class="ui">Audio could not start</span></td>
+              <td>The device refused to start. The tooltip gives the reason.</td>
+              <td>Check that the device works in other apps. The app tries again at each device
+              change.</td>
+            </tr>
+            <tr>
+              <td><span class="ui">Waiting for microphone access</span></td>
+              <td>macOS is asking you for the microphone. Nothing plays until you answer.</td>
+              <td>Answer the macOS dialog. See <a href="#microphone">Microphone permission</a>.</td>
+            </tr>
+            <tr>
+              <td><span class="ui">Microphone access denied, inputs are silent</span></td>
+              <td>macOS does not let the app read inputs. Outputs still play.</td>
+              <td>See <a href="#microphone">Microphone permission</a>.</td>
+            </tr>
+            <tr>
+              <td><span class="ui">No MIDI clock</span></td>
+              <td>No clock arrives from the source in Settings.</td>
+              <td>Start the clock on your sequencer, or check <span class="ui caps">Clock source</span>.</td>
+            </tr>
+            <tr>
+              <td><span class="ui">Evening set could not be saved</span></td>
+              <td>The file could not be written. The configuration stays unsaved.</td>
+              <td>Check the disk, then save again.</td>
+            </tr>
+            <tr>
+              <td><span class="ui">Acid bass could not be loaded</span></td>
+              <td>The plugin did not take the preset.</td>
+              <td>Pick another sound, or check the plugin's own window.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="microphone">
+        <h2>Microphone permission</h2>
+        <p>macOS treats every audio input as a microphone. The first time you open a configuration
+        on a device that has inputs, macOS asks whether Pluginarium may use the microphone, with
+        the reason <span class="ui">Pluginarium plays audio from your interface through your
+        plugins.</span> This happens even if no channel uses an input yet.</p>
+        <p>Until you answer, no audio device is open: nothing plays, and the top bar reads
+        <span class="ui">Waiting for microphone access</span>. Settings, the menus and Quit keep
+        working. Answer the macOS dialog, and the configuration starts. macOS asks only once.</p>
+        <dl class="controls">
+          <dt>Allow</dt>
+          <dd><span class="ui caps">Audio in</span> and <span class="ui caps">Sidechain in</span>
+          work.</dd>
+          <dt>Don't Allow</dt>
+          <dd>Outputs still play, inputs are silent, and the top bar reads
+          <span class="ui">Microphone access denied, inputs are silent</span>. Plugins that use no
+          input are not affected.</dd>
+        </dl>
+        <p>To change the answer later, turn Pluginarium on in <b>System Settings › Privacy &amp;
+        Security › Microphone</b> and start the app again.</p>
+      </section>
+
+      <section id="updates">
+        <h2>Updates</h2>
+        <p>At every launch Pluginarium asks whether a newer version exists and, if so, offers it.
+        Nothing is installed without your OK. <span class="ui">Check for Updates…</span> in the
+        app menu asks right away. Without an internet connection the app starts as usual.</p>
+      </section>
+
+      <section id="limits">
+        <h2>Limits of this version</h2>
+        <ul>
+          <li>Audio Units only, of the types <code>aumu</code>, <code>aumf</code> and
+          <code>aufx</code>. No VST or VST3, and no plugins that exist for Intel Macs only.</li>
+          <li>No MIDI learn, and no control of plugin parameters from MIDI controllers.</li>
+          <li>No faders, panning or level mixing. Your mixer does that.</li>
+          <li>No recording, sequencing or arranging.</li>
+          <li>One configuration at a time. Loading another stops what plays, so it is not made for
+          switching during a performance.</li>
+          <li>A sidechain comes from an input of the audio device, not from another channel.</li>
+          <li>No latency compensation. Audio that passes through the Mac arrives one round trip
+          late, and a plugin played over MIDI sounds later than hardware triggered by the same
+          sequencer. Keep the buffer low, and correct what remains on the sequencer.</li>
+          <li>No limiter. The app only silences invalid samples and clips what leaves a channel at
+          +12 dB.</li>
+          <li>Channels cannot be reordered, and effects can only be moved out of a parallel row.</li>
+          <li>Configurations and presets cannot be renamed or deleted in the app.
+          <span class="ui">Save as</span> gives a copy a new name. They are files in
+          <code>~/Library/Application Support/Pluginarium</code>; to remove a configuration, delete
+          its file in <code>configurations</code> while the app is closed. The name is inside the
+          file, not in the file name.</li>
+          <li>The app does not start with the Mac. Launching it is up to you.</li>
+          <li>This version has been used on a MacBook with a four-output interface. Paths through a
+          larger interface, a MIDI router, a hardware clock source and real sidechain plugins are
+          still to be tried in a studio session.</li>
+        </ul>
+      </section>
+
+    </article>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Pluginarium by Jiří Píša. GPL-3.0. Manual for version 0.1.0.</span>
+    <span><a href="index.html">Overview</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

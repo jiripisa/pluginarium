@@ -1,7 +1,7 @@
 # Pluginarium design
 
 Date: 2026-10-31
-Status: awaiting approval
+Status: approved
 
 ## Intent
 
@@ -81,8 +81,8 @@ A channel shows, top to bottom:
 1. Position in the stack and a remove control.
 2. Inputs, depending on the plugin (see Channels follow the plugin).
 3. Plugin name and preset selector.
-4. Button that opens and closes the plugin window.
-5. Effect slots. Effects stacked vertically run in series. Effects side by side in one row run in parallel, joined by split and merge lines. Up to 3 effects share a row. Clicking an effect opens a menu: open or close plugin, presets, sidechain input if the plugin has one, add parallel effect, move to series, remove.
+4. Button that opens and closes the plugin window, and under it the Follow Start/Stop key with its LED (see Tempo).
+5. Effect slots. Effects stacked vertically run in series. Effects side by side in one row run in parallel, joined by split and merge lines. Up to 3 effects share a row. Clicking an effect opens a menu: open or close plugin, presets, sidechain input if the plugin has one, Follow Start/Stop on or off, add parallel effect, move to series, remove.
 6. Level meter and audio output.
 
 ### Add dialog
@@ -130,6 +130,15 @@ A standalone effect takes signal from an audio input and sends it to an audio ou
 
 Plugins with tempo sync follow the MIDI clock from the source chosen in Settings. Example: ZEN Delay on a channel follows the Hapax.
 
+Plugins never receive MIDI clock messages. The app reads the clock and gives each plugin the tempo, the position and whether the transport is playing.
+
+Each channel and each insert effect has a Follow Start/Stop switch, saved in the configuration (decided by the owner). Tempo always reaches the plugin.
+
+- On: the plugin sees tempo and transport, so an arpeggiator or internal sequencer runs with the Hapax.
+- Off: the plugin sees tempo only, and to it the transport is always stopped. A delay keeps its tempo, and an internal sequencer stays still. Example: a TB-303 plugin stays silent when the Hapax starts, unless it gets notes.
+
+The switch starts off on instruments and on on effects, so a sequencer never starts a part the owner did not ask for. Notes and controllers follow the channel's MIDI in, whatever the switch says.
+
 ### Presets
 
 A preset is a named snapshot of a plugin's state, stored per plugin and available in every configuration.
@@ -169,7 +178,7 @@ The list of plugins installed on the Mac mini is collected in the studio session
 
 Prove these with the smallest possible test before building on them.
 
-1. **Preset recall.** The preset design depends on a plugin restoring the selected sound from its saved state. Not tested yet. Test it with TB-303 and JUPITER-8 on the MacBook Air first. If it fails, the preset design has to be reopened with the owner.
+1. **Preset recall.** The preset design depends on a plugin restoring the selected sound from its saved state. Proven on 2026-10-31: the owner picked a sound in TB-303 and in JUPITER-8, saved state with the probe, and both showed the same sound after restoring it in a new process.
 2. **Multichannel routing.** The app must address individual inputs and outputs of the AudioFuse from one process. This is the core of the app, so it goes first in the studio session.
 3. **Audio input and sidechain paths.** No plugin on the MacBook Air proves them with a real vocoder or sidechain compressor, because all its effects are Apple's and none is known to expose a sidechain. Build against a small test Audio Unit that declares these inputs, then confirm in the studio with one of the owner's purchased plugins. Which one is chosen at that point.
 4. **Latency through the Mac.** Audio in and sidechain signals pass through the Mac and arrive one round trip late, and a plugin played over MIDI sounds later than hardware triggered by the same sequencer. Measure this with the AudioFuse at the default buffer size and report the numbers. There is no fixed limit, the owner judges it by ear, and any remaining offset is corrected on the sequencer for now.

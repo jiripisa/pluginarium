@@ -1,0 +1,630 @@
+import Foundation
+import Observation
+import PluginariumAudio
+import PluginariumCore
+#if DEBUG
+import PluginariumTestUnits
+#endif
+import os
+
+private let logger = Logger(subsystem: "io.jp4.pluginarium", category: "app")
+
+private let toastDuration = Duration.milliseconds(3600)
+
+/// What the screens show and ask for. Audio lives in `AudioSession`, which this creates only when a
+/// configuration opens, so the Start screen touches no hardware.
+@MainActor
+@Observable
+final class AppModel {
+
+    enum Screen {
+        case start, mixer, settings
+    }
+
+    var screen = Screen.start {
+        // A dialog belongs to the screen it was opened on.
+        didSet {
+            guard screen != oldValue else { return }
+            closeMenu()
+            closeAdd()
+        }
+    }
+    var session: EditingSession?
+    var settings: AppSettings
+    var configurations: [Configuration]
+    /// The question on screen, which `RootView` shows over any screen.
+    var dialog: ChoiceDialog?
+    /// The name being asked for, which `RootView` shows over any screen.
+    var nameDialog: NameDialog?
+    /// The menu on screen. Only one is open at a time.
+    private(set) var menu: PanelMenu? {
+        didSet {
+            if let menu { menuWindow.show(menu) } else { menuWindow.hide() }
+        }
+    }
+    /// The line at the bottom of the window.
+    private(set) var toast: String?
+    /// The Add dialog on screen, which `RootView` shows over any screen. It is made once when the
+    /// dialog opens and dropped when it closes, so no view can make a second one.
+    private(set) var addModel: AddModel?
+
+    /// Where the dialog on screen adds to; setting nil closes it.
+    var addTarget: AddTarget? {
+        get { addModel?.target }
+        set {
+            if let newValue { openAdd(newValue) } else { closeAdd() }
+        }
+    }
+
+    /// Dialogs and Settings are part of the mixer window, and plugin windows sit above it, so these
+    /// step aside for as long as one of those shows. A save question has to come through `dialog`.
+    var hidesPluginWindows: Bool {
+        dialog != nil || nameDialog != nil || addModel != nil || screen == .settings
+    }
+
+    private(set) var audio: AudioSession?
+    /// The save question of a quit is on screen, so a second quit does not ask again.
+    private(set) var isAskingToQuit = false
+    /// The audio devices the system lists, which Settings looks at again while it shows.
+    private(set) var devices: [AudioDevice] = []
+    private(set) var defaultDevice: AudioDevice?
+    /// Goes up each time a preset is saved.
+    private var presetChanges = 0
+
+    @ObservationIgnored private(set) lazy var pluginWindows = PluginWindows(app: self)
+    @ObservationIgnored private lazy var menuWindow = PanelMenuWindow { [weak self] in self?.closeMenu() }
+
+    @ObservationIgnored private let configurationStore: ConfigurationStore
+    @ObservationIgnored private let cache: CapabilityCache
+    @ObservationIgnored private let presetStore: PresetStore
+    @ObservationIgnored private let settingsStore: SettingsStore
+    @ObservationIgnored private var installed: [PluginInfo]?
+    /// The files of a plugin's presets are read once, because every channel's label asks for them.
+    @ObservationIgnored private var presetCache: [PluginID: [Preset]] = [:]
+    @ObservationIgnored private var toastTimer: Task<Void, Never>?
+    /// Probes for the Add dialog: one load at a time, and a plugin that failed is not loaded again.
+    @ObservationIgnored private lazy var probes = ProbeScheduler<ProbeResult>(delay: .milliseconds(300)) { [weak self] plugin in
+        await self?.probe(plugin)
+    }
+    @ObservationIgnored private var settingsReturn = Screen.start
+    /// Devices seen so far by UID, so one that has gone is still called by its name.
+    @ObservationIgnored private var deviceNames: [String: String] = [:]
+
+    init(base: URL = AppPaths.base()) {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["PLUGINARIUM_TEST_UNITS"] == "1" { registerSafeTestUnits() }
+        #endif
+        configurationStore = ConfigurationStore(directory: base.appending(path: "configurations", directoryHint: .isDirectory))
+        cache = CapabilityCache(file: base.appending(path: "capabilities.json"))
+        presetStore = PresetStore(directory: base.appending(path: "presets", directoryHint: .isDirectory))
+        settingsStore = SettingsStore(file: base.appending(path: "settings.json"))
+        settings = settingsStore.load()
+        configurations = configurationStore.loadAll()
+    }
+
+    func load(_ configuration: Configuration) {
+        closeMenu()
+        closeAdd()
+        pluginWindows.closeAll()
+        session = EditingSession(saved: configuration)
+        screen = .mixer
+        let audio = audioSession()
+        let settings = settings
+        Task { await audio.reload(configuration, settings: settings) }
+    }
+
+    func newConfiguration() {
+        pluginWindows.closeAll()
+        let configuration = Configuration(name: "")
+        session = EditingSession(new: configuration)
+        screen = .mixer
+        let audio = audioSession()
+        let settings = settings
+        Task { await audio.open(configuration, settings: settings) }
+        beginAddChannel()
+    }
+
+    /// Every edit of a configuration comes through here. A plugin the edit takes away loses its window
+    /// now, before audio lets the plugin go. The task ends once the plugins have settled.
+    @discardableResult
+    func edit(_ change: (inout Configuration) -> Void) -> Task<Void, Never>? {
+        session?.edit(change)
+        if let configuration = session?.configuration { pluginWindows.closeWindowsOfPluginsGone(from: configuration) }
+        guard let audio else { return nil }
+        // Takes the newest configuration when it runs, so edits cannot overtake one another.
+        return Task { [weak self] in
+            guard let configuration = self?.session?.configuration else { return }
+            await audio.update(configuration)
+        }
+    }
+
+    // MARK: - Saving
+
+    /// Whether the commands that open or leave a configuration can run: nothing else is being asked.
+    var commandsAvailable: Bool {
+        screen != .settings && dialog == nil && nameDialog == nil && addModel == nil
+    }
+
+    /// Plugins give no signal when their sound changes, so this looks at the open windows first.
+    var leaveAction: LeaveAction {
+        pluginWindows.noteChanges()
+        return session?.leaveAction ?? .proceed
+    }
+
+    /// Whether a plugin window is open, whose plugin may have changed its sound without telling.
+    var hasOpenPluginWindows: Bool { pluginWindows.hasOpenWindows }
+
+    /// Command-S and the Save button: looks at the open plugin windows first, and saves only if that
+    /// leaves the configuration with changes. With nothing changed it does nothing.
+    func saveIfChanged() {
+        pluginWindows.noteChanges()
+        guard session?.isDirty == true else { return }
+        saveCurrent()
+    }
+
+    /// Command-S, the Save button and Save configuration. A configuration that was never saved asks
+    /// for its name first.
+    func saveCurrent(then done: @escaping (_ saved: Bool) -> Void = { _ in }) {
+        guard let session else { return done(false) }
+        guard session.needsName else { return done(write()) }
+        nameDialog = .saveConfiguration(
+            value: session.configuration.name,
+            save: { [weak self] name in done(self?.write(name: name) ?? false) },
+            cancel: { done(false) })
+    }
+
+    /// Save as in the configuration menu: a copy under a new name, which is the configuration from then on.
+    func beginSaveAs() {
+        guard let session else { return }
+        pluginWindows.noteChanges()
+        nameDialog = .saveAs(value: SaveFlow.copyName(of: session.configuration.name)) { [weak self] name in
+            self?.write(name: name, asCopy: true)
+        }
+    }
+
+    /// Stores the configuration with the state its plugins are in now. The configuration stays unsaved
+    /// when the file cannot be written.
+    @discardableResult
+    private func write(name: String? = nil, asCopy: Bool = false) -> Bool {
+        // Looking at the plugin windows edits the session, so the session is read after that.
+        guard let prepared = SaveFlow.prepare(
+            session: { self.session }, noteChanges: { self.pluginWindows.noteChanges() },
+            capture: { configuration in
+                let held = self.audio?.captureState(of: configuration) ?? .init(configuration: configuration, unreadable: [])
+                return (held.configuration, held.unreadable)
+            }, name: name, asCopy: asCopy)
+        else { return false }
+        let configuration = prepared.configuration
+        do {
+            try configurationStore.save(configuration)
+        } catch {
+            report(SaveFlow.failureNotice(name: configuration.name), error)
+            return false
+        }
+        guard var session else { return false }
+        session.configuration = configuration
+        session.markSaved()
+        self.session = session
+        configurations = configurationStore.loadAll()
+        // A sound that could not be read still saves, so this says so instead of the plain message.
+        show(SaveFlow.unreadableNotice(prepared.unreadable) ?? SaveFlow.savedNotice(name: configuration.name))
+        return true
+    }
+
+    /// Runs `action` right away unless there are unsaved changes. Then it asks, and runs it once they
+    /// are saved or thrown away.
+    func leave(then action: @escaping () -> Void) {
+        guard leaveAction == .askToSave else {
+            action()
+            return
+        }
+        askToSave(proceed: action, cancel: {})
+    }
+
+    /// For quitting. True when the app may quit now. Otherwise the answer comes later, to `reply` if
+    /// this started the question, and a quit asked while it is on screen waits for the same answer.
+    func askBeforeQuitting(reply: @escaping (Bool) -> Void) -> Bool {
+        guard leaveAction == .askToSave else { return true }
+        guard !isAskingToQuit else { return false }
+        isAskingToQuit = true
+        askToSave(
+            proceed: { [weak self] in
+                self?.isAskingToQuit = false
+                reply(true)
+            },
+            cancel: { [weak self] in
+                self?.isAskingToQuit = false
+                reply(false)
+            })
+        return false
+    }
+
+    /// "Save changes?" through `dialog`, so plugin windows step aside for it. `proceed` runs for Don't
+    /// save, and for Save once the configuration is stored; anything else ends in `cancel`.
+    private func askToSave(proceed: @escaping () -> Void, cancel: @escaping () -> Void) {
+        dialog = .saveChanges(
+            configuration: session?.configuration.name ?? "",
+            dontSave: proceed,
+            cancel: cancel,
+            save: { [weak self] in
+                self?.saveCurrent { saved in
+                    if saved { proceed() } else { cancel() }
+                }
+            })
+    }
+
+    /// Asks before taking a channel out of the configuration.
+    func askToRemove(_ channel: Channel) {
+        let id = channel.id
+        dialog = .removeChannel(named: channel.slot.displayName) { [weak self] in
+            self?.edit { $0.channels.removeAll { $0.id == id } }
+        }
+    }
+
+    // MARK: - Add dialog
+
+    /// The Audio Units that can be hosted, by name. Scanned once, when the Add dialog first needs them.
+    var installedPlugins: [PluginInfo] {
+        if let installed { return installed }
+        let found = PluginCatalog.scan().sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        installed = found
+        return found
+    }
+
+    var deviceInputs: Int {
+        if case .running(let device)? = audio?.engine.state { device.inputChannels.count } else { 0 }
+    }
+
+    var deviceOutputs: Int {
+        if case .running(let device)? = audio?.engine.state { device.outputChannels.count } else { 0 }
+    }
+
+    func savedPresets(for plugin: PluginID) -> [Preset] {
+        _ = presetChanges  // So a view that asks here looks again when a preset is saved.
+        if let presets = presetCache[plugin] { return presets }
+        let presets = presetStore.presets(for: plugin)
+        presetCache[plugin] = presets
+        return presets
+    }
+
+    func knownCapabilities(of plugin: PluginID) -> PluginCapabilities? { cache[plugin] }
+
+    func knownFactoryPresets(of plugin: PluginID) -> [String]? { cache.factoryPresets(for: plugin) }
+
+    /// Loads the plugin, remembers what it says and returns it. Nil when it cannot be loaded.
+    func probe(_ plugin: PluginID) async -> ProbeResult? {
+        guard let result = await CapabilityProbe.probe(plugin) else { return nil }
+        cache.store(result.capabilities, factoryPresets: result.factoryPresets, for: plugin)
+        return result
+    }
+
+    /// Probes `plugin` for the Add dialog once the selection has rested; `deliver` gets nil if it cannot be loaded.
+    func requestProbe(_ plugin: PluginID, deliver: @escaping ProbeScheduler<ProbeResult>.Deliver) {
+        probes.request(plugin, deliver: deliver)
+    }
+
+    /// The Add dialog has nothing to probe: nothing is loaded for it until it selects again.
+    func stopProbes() { probes.stop() }
+
+    /// The routing a new channel of `kind` starts with.
+    func newRouting(for kind: PluginKind) -> AddRouting {
+        let configuration = session?.configuration ?? Configuration(name: "")
+        let defaults = defaultRouting(for: kind, in: configuration, settings: settings)
+            .fitting(deviceInputs: deviceInputs, deviceOutputs: deviceOutputs, kind: kind, in: configuration)
+        return AddRouting(defaults: defaults, kind: kind)
+    }
+
+    private func openAdd(_ target: AddTarget) {
+        closeAdd()
+        addModel = AddModel(target: target, app: self)
+    }
+
+    /// Closes the dialog, if one is open, and stops its probes so nothing starts for it later.
+    func closeAdd() {
+        guard let model = addModel else { return }
+        addModel = nil
+        model.dismissed()
+        probes.stop()
+    }
+
+    /// Add column of the mixer, and a new configuration.
+    func beginAddChannel() { openAdd(.channel) }
+
+    /// Replace plugin button of a channel whose plugin is not installed.
+    func beginReplacePlugin(channel: UUID) { openAdd(.replace(channel: channel)) }
+
+    /// Add effect slot of a channel.
+    func beginAddEffect(channel: UUID) { openAdd(.insert(channel: channel, row: nil)) }
+
+    /// Add parallel effect of the effect menu.
+    func beginAddParallelEffect(channel: UUID, row: Int) { openAdd(.insert(channel: channel, row: row)) }
+
+    /// Puts the picked plugin where `target` says, and moves it to the front of the recent ones.
+    func finishAdd(
+        _ target: AddTarget, plugin: PluginInfo, preset: AddPreset, routing: AddRouting, capabilities: PluginCapabilities?
+    ) {
+        let location: PluginLocation
+        let settled: Task<Void, Never>?
+        switch target {
+        case .channel:
+            let channel = AddPicker.channel(plugin: plugin, preset: preset, routing: routing, capabilities: capabilities)
+            location = PluginLocation(channel: channel.id)
+            settled = edit { $0.channels.append(channel) }
+        case .replace(let id):
+            location = PluginLocation(channel: id)
+            settled = editChannel(id) { channel in
+                channel = AddPicker.replacing(channel, with: plugin, preset: preset, capabilities: capabilities)
+            }
+        case .insert(let id, let row):
+            let effect = InsertEffect(slot: AddPicker.slot(plugin: plugin, preset: preset))
+            location = PluginLocation(channel: id, effect: effect.id)
+            settled = editChannel(id) { AddPicker.insert(effect, into: &$0, row: row) }
+        }
+        if case .factory(let name) = preset {
+            Task {
+                await settled?.value
+                keepStateOfFactoryPreset(name, at: location)
+            }
+        }
+        settings.recentPlugins = AddPicker.recent(adding: plugin.id, to: settings.recentPlugins)
+        try? settingsStore.save(settings)
+        closeAdd()
+    }
+
+    /// A new plugin starts on the factory preset its slot names, and this is the state that left it in.
+    private func keepStateOfFactoryPreset(_ name: String, at location: PluginLocation) {
+        guard session?.configuration.slot(at: location)?.presetName == name, let plugin = hostedPlugin(at: location) else { return }
+        do {
+            let state = try plugin.fullState()
+            edit { $0.updateSlot(at: location) { $0.state = state } }
+        } catch {
+            logger.error("Cannot read the state after \(name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    // MARK: - Plugins
+
+    /// The plugin running at `location`. Loading, failed and missing ones have none.
+    func hostedPlugin(at location: PluginLocation) -> HostedPlugin? {
+        audio?.runner?.plugin(channel: location.channel, effect: location.effect)
+    }
+
+    func presetLabel(for slot: PluginSlot) -> String {
+        let isSaved = slot.presetName.map { name in savedPresets(for: slot.plugin).contains { $0.name == name } } ?? false
+        return PresetLabel.text(for: slot, isSavedPreset: isSaved)
+    }
+
+    /// A plugin window found the plugin's sound changed, to `state`. Plugins give no signal when their
+    /// sound changes, so this is where the configuration hears of it.
+    func notePluginSoundChanged(at location: PluginLocation, to state: Data) {
+        guard session?.configuration.slot(at: location) != nil else { return }
+        edit { $0.updateSlot(at: location) { $0.takeChangedSound(state) } }
+    }
+
+    /// Goes through `Channel`'s methods and `edit`, like every change of a chain.
+    @discardableResult
+    private func editChannel(_ id: UUID, _ change: (inout Channel) -> Void) -> Task<Void, Never>? {
+        edit { configuration in
+            guard let index = configuration.channels.firstIndex(where: { $0.id == id }) else { return }
+            change(&configuration.channels[index])
+        }
+    }
+
+    // MARK: - Menus
+
+    func closeMenu() {
+        menu = nil
+    }
+
+    /// The name in the top bar: the configurations to load, the current one marked.
+    func showConfigurationMenu(anchor: CGRect) {
+        showMenu(PluginMenus.configurations(configurations, current: session?.configuration.id), anchor: anchor) { [weak self] action in
+            switch action {
+            case .load(let id):
+                guard let configuration = self?.configurations.first(where: { $0.id == id }) else { return }
+                self?.leave { self?.load(configuration) }
+            case .new: self?.leave { self?.newConfiguration() }
+            case .saveAs: self?.beginSaveAs()
+            }
+        }
+    }
+
+    /// Preset selector of a channel, and Presets in the menu of an effect.
+    func showPresetMenu(channel: UUID, effect: UUID?, anchor: CGRect) {
+        let location = PluginLocation(channel: channel, effect: effect)
+        guard let plugin = hostedPlugin(at: location), let slot = session?.configuration.slot(at: location) else { return }
+        let entries = PluginMenus.presets(saved: savedPresets(for: slot.plugin), factory: plugin.factoryPresets(), current: slot.presetName)
+        showMenu(entries, anchor: anchor) { [weak self] action in
+            switch action {
+            case .saved(let preset): self?.select(preset, at: location)
+            case .factory(let name): self?.selectFactoryPreset(name, at: location)
+            case .save: self?.beginSavePreset(at: location)
+            }
+        }
+    }
+
+    /// An effect slot of a channel.
+    func showEffectMenu(channel id: UUID, effect effectID: UUID, anchor: CGRect) {
+        guard let channel = session?.configuration.channels.first(where: { $0.id == id }), let rowIndex = channel.row(of: effectID),
+            let effect = channel.effects[rowIndex].first(where: { $0.id == effectID })
+        else { return }
+        let location = PluginLocation(channel: id, effect: effectID)
+        let hasSidechain = knownCapabilities(of: effect.slot.plugin)?.hasSidechain ?? (effect.sidechainIn != nil)
+        let entries = PluginMenus.effect(
+            rowSize: channel.effects[rowIndex].count, rowIndex: rowIndex, isOpen: pluginWindows.isOpen(channel: id, effect: effectID),
+            isHosted: hostedPlugin(at: location) != nil, presetLabel: presetLabel(for: effect.slot),
+            sidechain: hasSidechain ? effect.sidechainIn?.label(prefix: "In") ?? "Off" : nil,
+            followsTransport: effect.followsTransport
+        )
+        showMenu(entries, anchor: anchor) { [weak self] action in
+            switch action {
+            case .togglePlugin: self?.pluginWindows.toggle(channel: id, effect: effectID)
+            case .presets: self?.showPresetMenu(channel: id, effect: effectID, anchor: anchor)
+            case .sidechain: self?.showSidechainMenu(channel: id, effect: effectID, anchor: anchor)
+            case .toggleFollowsTransport: self?.edit { $0.updateSlot(at: location) { $0.followsTransport = !effect.followsTransport } }
+            case .addParallel(let row): self?.beginAddParallelEffect(channel: id, row: row)
+            case .moveToSeries: self?.editChannel(id) { $0.moveToSeries(effectID: effectID) }
+            case .remove: self?.editChannel(id) { $0.removeEffect(effectID: effectID) }
+            }
+        }
+    }
+
+    private func showSidechainMenu(channel: UUID, effect: UUID, anchor: CGRect) {
+        let current = session?.configuration.channels.first { $0.id == channel }?.effects.joined().first { $0.id == effect }?.sidechainIn
+        showMenu(PluginMenus.sidechain(deviceInputs: deviceInputs, current: current), anchor: anchor) { [weak self] input in
+            self?.editChannel(channel) { $0.setSidechain(effectID: effect, to: input) }
+        }
+    }
+
+    private func showMenu<Action>(_ entries: [MenuEntry<Action>], anchor: CGRect, perform: @escaping (Action) -> Void) {
+        menu = PanelMenu(anchor: anchor, entries: entries.map { entry in entry.map { action in { perform(action) } } })
+    }
+
+    // MARK: - Presets
+
+    private func select(_ preset: Preset, at location: PluginLocation) {
+        guard let plugin = hostedPlugin(at: location) else { return }
+        do {
+            // A running plugin keeps its own state whatever its slot says, so it is told directly.
+            try plugin.restore(preset.state)
+            edit { $0.updateSlot(at: location) { $0.takePreset(preset.name, state: preset.state) } }
+            pluginWindows.moveBaseline(at: location)
+        } catch {
+            report("\(preset.name) could not be loaded", error)
+        }
+    }
+
+    private func selectFactoryPreset(_ name: String, at location: PluginLocation) {
+        guard let plugin = hostedPlugin(at: location) else { return }
+        do {
+            try plugin.selectFactoryPreset(name)
+            let state = try plugin.fullState()
+            edit { $0.updateSlot(at: location) { $0.takePreset(name, state: state) } }
+            pluginWindows.moveBaseline(at: location)
+        } catch {
+            report("\(name) could not be loaded", error)
+        }
+    }
+
+    private func beginSavePreset(at location: PluginLocation) {
+        guard let slot = session?.configuration.slot(at: location) else { return }
+        nameDialog = .savePreset(plugin: slot.displayName, current: slot.presetName) { [weak self] name in
+            self?.savePreset(named: name, at: location)
+        }
+    }
+
+    /// The preset is stored for good here, whatever becomes of the configuration.
+    private func savePreset(named name: String, at location: PluginLocation) {
+        guard let session, let plugin = hostedPlugin(at: location) else { return }
+        let state: Data
+        do {
+            state = try plugin.fullState()
+            try presetStore.save(Preset(name: name, plugin: plugin.id, state: state))
+        } catch {
+            report("\(name) could not be saved", error)
+            return
+        }
+        presetCache[plugin.id] = presetStore.presets(for: plugin.id)
+        presetChanges += 1
+        edit { $0.updateSlot(at: location) { $0.takePreset(name, state: state) } }
+        pluginWindows.moveBaseline(at: location)
+        switch session.followUpAfterPresetSaved() {
+        case .askToSaveConfiguration:
+            dialog = .updateConfiguration(preset: name, configuration: session.configuration.name) { [weak self] in
+                self?.saveCurrent()
+            }
+        case .keepWithUnsavedConfiguration:
+            show("\(name) saved. It joins this configuration when you save it.")
+        }
+    }
+
+    private func report(_ text: String, _ error: any Error) {
+        logger.error("\(text, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        show(text)
+    }
+
+    private func show(_ text: String) {
+        toast = text
+        toastTimer?.cancel()
+        toastTimer = Task { [weak self] in
+            try? await Task.sleep(for: toastDuration)
+            guard !Task.isCancelled else { return }
+            self?.toast = nil
+        }
+    }
+
+    // MARK: - Settings
+
+    /// Settings opens over the Start screen as well, so the audio session is made for it. Making one
+    /// starts no device: nothing plays until a configuration opens.
+    func showSettings() {
+        settingsReturn = screen
+        _ = audioSession()
+        refreshDevices()
+        screen = .settings
+    }
+
+    func closeSettings() {
+        screen = settingsReturn
+    }
+
+    /// Reads the devices the system lists now, and remembers their names.
+    func refreshDevices() {
+        let found = DeviceCatalog.all()
+        for device in found { deviceNames[device.id] = device.name }
+        if found != devices { devices = found }
+        let output = DeviceCatalog.defaultOutput()
+        if output != defaultDevice { defaultDevice = output }
+    }
+
+    /// The device whose channels the routes of Settings choose from: the one that runs, else the one
+    /// picked, else the system's. Looking does not open it.
+    private var referenceDevice: AudioDevice? {
+        if case .running(let device)? = audio?.engine.state { return device }
+        guard let uid = settings.audioDeviceUID else { return defaultDevice }
+        return devices.first { $0.id == uid }
+    }
+
+    var settingsInputs: Int { referenceDevice?.inputChannels.count ?? 0 }
+    var settingsOutputs: Int { referenceDevice?.outputChannels.count ?? 0 }
+
+    func name(ofDevice uid: String) -> String? { deviceNames[uid] }
+
+    /// Stores the change, and tells audio, which only keeps it while no configuration plays. A change of
+    /// the configuration is not one, so nothing becomes unsaved.
+    @discardableResult
+    func changeSettings(_ change: (inout AppSettings) -> Void) -> Task<Void, Never>? {
+        var changed = settings
+        change(&changed)
+        guard changed != settings else { return nil }
+        settings = changed
+        do {
+            try settingsStore.save(changed)
+        } catch {
+            logger.error("Cannot write the settings: \(error.localizedDescription, privacy: .public)")
+        }
+        guard let audio else { return nil }
+        return Task { await audio.applySettings(changed) }
+    }
+
+    /// For quitting: everything audio goes, in the order `AudioSession.close` keeps.
+    func close() {
+        // A plugin's view can call the host at any time, and those calls end up in the render core.
+        pluginWindows.closeAll()
+        audio?.close()
+        audio = nil
+    }
+
+    private func audioSession() -> AudioSession {
+        if let audio { return audio }
+        let audio = AudioSession(cache: cache)
+        audio.willReleasePlugins = { [weak self] canReadState in
+            guard let self else { return }
+            // Audio keeps the sound for the new plugins, but the configuration has to hear of it.
+            if canReadState { pluginWindows.noteChanges() }
+            pluginWindows.closeAll()
+        }
+        self.audio = audio
+        return audio
+    }
+}

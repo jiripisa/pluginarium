@@ -4,8 +4,14 @@
 <dict>
     <!-- Ships unsandboxed: Developer ID + hardened runtime + notarization
          (development_workflow.md §2.4). Add entitlements here when the app
-         needs them (microphone, camera, …). -->
+         needs them (microphone, camera, …).
+         disable-library-validation lets the hardened app load third-party
+         Audio Units; audio-input lets it read audio from the interface. -->
     <key>com.apple.security.app-sandbox</key>
     <false/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
 </dict>
 </plist>

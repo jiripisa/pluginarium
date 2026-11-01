@@ -26,7 +26,17 @@
     <string>15.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Pluginarium plays audio from your interface through your plugins.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>SUFeedURL</key>
+    <string>https://jiripisa.github.io/pluginarium/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>GgSixgoEdmJsap/s8zC8L5PUYBoO2LrXvufBprH1mY0=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUAllowsAutomaticUpdates</key>
+    <false/>
 </dict>
 </plist>
