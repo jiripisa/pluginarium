@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 — 2026-11-01
 
 - First version.
 - Start screen with your saved configurations and the plugins each one uses, on the synth panel with walnut cheeks.
